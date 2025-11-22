@@ -3,3 +3,4 @@ uvicorn
 google-generativeai
 python-dotenv
 urllib3<2.0
+gunicorn
