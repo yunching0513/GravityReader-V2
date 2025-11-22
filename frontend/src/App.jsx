@@ -18,6 +18,7 @@ function App() {
     const [pdfDocument, setPdfDocument] = useState(null);
     const [summaryResult, setSummaryResult] = useState(null);
     const [viewMode, setViewMode] = useState('analysis'); // 'analysis' | 'summary'
+    const [translationMode, setTranslationMode] = useState('sentence'); // 'sentence' | 'paragraph'
     const [customSummaryLength, setCustomSummaryLength] = useState(500);
     const [isSummarizing, setIsSummarizing] = useState(false);
 
@@ -67,7 +68,10 @@ function App() {
 
         try {
             // Call Backend API
-            const response = await axios.post(`${API_URL}/api/analyze`, { text });
+            const response = await axios.post(`${API_URL}/api/analyze`, {
+                text,
+                mode: translationMode
+            });
 
             // Parse JSON response if it's a string, otherwise use as is
             let result = response.data;
@@ -152,8 +156,16 @@ function App() {
         URL.revokeObjectURL(url);
     };
 
+    const [fontMode, setFontMode] = useState('default'); // 'default' | 'zen'
+    const [highlightedText, setHighlightedText] = useState('');
+    const [highlightColor, setHighlightColor] = useState('rgba(255, 255, 170, 0.5)'); // Default Yellow
+
+    const handleAnalysisItemClick = (text) => {
+        setHighlightedText(text);
+    };
+
     return (
-        <div className="flex h-screen w-screen overflow-hidden bg-gray-900 text-white font-sans relative">
+        <div className={`flex h-screen w-screen overflow-hidden bg-[#202225] text-white font-sans relative ${fontMode === 'zen' ? 'font-zen' : ''}`}>
             {/* Sidebar Toggle */}
             <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -162,40 +174,45 @@ function App() {
                 {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
 
-            {/* Sidebar Drawer */}
-            <div className={`fixed top-0 left-0 h-full w-64 bg-gray-900 border-r border-gray-700 z-40 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} pt-16 px-4 shadow-2xl`}>
-                <h3 className="text-cyan-400 font-bold mb-4 flex items-center gap-2">
-                    <Download size={18} /> 匯出翻譯記錄
-                </h3>
-                <div className="flex flex-col gap-2 mb-8">
-                    <button onClick={() => handleExport('zh')} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm text-left transition">
-                        全中文下載
-                    </button>
-                    <button onClick={() => handleExport('bilingual')} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm text-left transition">
-                        中英對照下載
-                    </button>
+            {/* Sidebar Drawer - Simplified */}
+            <div className={`fixed top-0 left-0 h-full w-64 bg-[#202225] border-r border-gray-700 z-40 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} pt-16 px-4 shadow-2xl overflow-y-auto custom-scrollbar`}>
+
+                <div className="mb-6">
+                    <h3 className="text-cyan-400 font-bold mb-4 flex items-center gap-2">
+                        <FileText size={18} /> Document Summary
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2 mb-4">
+                        {[250, 500, 1000, 2000].map(len => (
+                            <button key={len} onClick={() => handleSummarize(len)} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs transition border border-gray-700 hover:border-pink-500/50">
+                                {len} words
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex gap-2">
+                        <input
+                            type="number"
+                            value={customSummaryLength}
+                            onChange={(e) => setCustomSummaryLength(parseInt(e.target.value))}
+                            className="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700"
+                        />
+                        <button onClick={() => handleSummarize(customSummaryLength)} className="px-3 py-1 bg-pink-600 hover:bg-pink-500 rounded text-sm whitespace-nowrap">
+                            Go
+                        </button>
+                    </div>
                 </div>
 
-                <h3 className="text-pink-500 font-bold mb-4 flex items-center gap-2">
-                    <FileText size={18} /> 文章摘要
-                </h3>
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                    {[250, 500, 1000, 2000].map(len => (
-                        <button key={len} onClick={() => handleSummarize(len)} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs transition">
-                            {len}字
+                <div className="mb-6 border-t border-gray-700 pt-4">
+                    <h3 className="text-green-400 font-bold mb-4 flex items-center gap-2">
+                        <Download size={18} /> Export
+                    </h3>
+                    <div className="flex flex-col gap-2">
+                        <button onClick={() => handleExport('zh')} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm text-left transition border border-gray-700 hover:border-green-500/50">
+                            Chinese Only (.txt)
                         </button>
-                    ))}
-                </div>
-                <div className="flex gap-2">
-                    <input
-                        type="number"
-                        value={customSummaryLength}
-                        onChange={(e) => setCustomSummaryLength(parseInt(e.target.value))}
-                        className="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700"
-                    />
-                    <button onClick={() => handleSummarize(customSummaryLength)} className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 rounded text-sm whitespace-nowrap">
-                        生成
-                    </button>
+                        <button onClick={() => handleExport('bilingual')} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm text-left transition border border-gray-700 hover:border-green-500/50">
+                            Bilingual (.txt)
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -204,10 +221,15 @@ function App() {
                 className="h-full border-r border-gray-700 flex flex-col relative"
                 style={{ width: `${leftWidth}%`, minWidth: '20%' }}
             >
-                <div className="absolute top-0 left-0 w-full p-2 pl-16 z-10 bg-gray-900/80 backdrop-blur text-cyan-400 font-bold flex items-center gap-2 pointer-events-none">
+                <div className="absolute top-0 left-0 w-full p-2 pl-16 z-10 bg-[#202225]/80 backdrop-blur text-cyan-400 font-bold flex items-center gap-2 pointer-events-none">
                     <Zap size={18} /> GravityReader V2
                 </div>
-                <PdfReader onTextSelect={handleTextSelect} onDocumentLoad={handleDocumentLoad} />
+                <PdfReader
+                    onTextSelect={handleTextSelect}
+                    onDocumentLoad={handleDocumentLoad}
+                    highlightedText={highlightedText}
+                    highlightColor={highlightColor}
+                />
             </div>
 
             {/* Resizer Handle */}
@@ -218,17 +240,63 @@ function App() {
 
             {/* Right Panel - Analysis / Summary */}
             <div
-                className="h-full flex flex-col bg-gray-900 p-6 overflow-auto"
+                className="h-full flex flex-col bg-[#202225] p-6 overflow-auto relative"
                 style={{ width: `${100 - leftWidth}%` }}
             >
-                <div className="mb-6 border-b border-gray-700 pb-4">
-                    <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 flex items-center gap-2">
-                        <Sparkles className="text-pink-500" />
-                        {viewMode === 'summary' ? 'Document Summary' : 'Neural Analysis'}
-                    </h2>
-                    <p className="text-gray-400 text-sm mt-1">
-                        {viewMode === 'summary' ? 'AI-generated summary of the document.' : 'Select text in the PDF to analyze.'}
-                    </p>
+                {/* Header Section */}
+                <div className="mb-6 border-b border-gray-700 pb-4 flex justify-between items-end relative">
+                    <div>
+                        <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 flex items-center gap-2">
+                            <Sparkles className="text-pink-500" />
+                            {viewMode === 'summary' ? 'Document Summary' : 'Neural Analysis'}
+                        </h2>
+                        <p className="text-gray-400 text-sm mt-1">
+                            {viewMode === 'summary' ? 'AI-generated summary of the document.' : 'Select text in the PDF to analyze.'}
+                        </p>
+                    </div>
+
+                    {/* Highlight Color Toggle */}
+                    <div className="absolute top-0 right-64 flex gap-2">
+                        <button
+                            onClick={() => setHighlightColor('rgba(255, 255, 170, 0.5)')}
+                            className={`w-6 h-6 rounded-full border-2 ${highlightColor.includes('170') ? 'border-white' : 'border-transparent'}`}
+                            style={{ backgroundColor: 'rgba(255, 255, 170, 1)' }}
+                            title="Yellow Highlight"
+                        />
+                        <button
+                            onClick={() => setHighlightColor('rgba(255, 151, 151, 0.5)')}
+                            className={`w-6 h-6 rounded-full border-2 ${highlightColor.includes('151') ? 'border-white' : 'border-transparent'}`}
+                            style={{ backgroundColor: 'rgba(255, 151, 151, 1)' }}
+                            title="Red Highlight"
+                        />
+                    </div>
+
+                    {/* Font Toggle */}
+                    <button
+                        onClick={() => setFontMode(fontMode === 'default' ? 'zen' : 'default')}
+                        className={`absolute top-0 right-48 px-3 py-1 text-xs rounded border border-gray-600 transition-colors ${fontMode === 'zen' ? 'bg-pink-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                        title="Toggle Zen Maru Gothic Font"
+                    >
+                        Aa
+                    </button>
+
+                    {/* Translation Mode Toggle */}
+                    {viewMode === 'analysis' && (
+                        <div className="absolute bottom-4 right-10 flex bg-gray-800 rounded-lg p-1 border border-gray-700 shadow-lg">
+                            <button
+                                onClick={() => setTranslationMode('sentence')}
+                                className={`px-6 py-2 text-sm font-medium rounded-md transition-all duration-200 ${translationMode === 'sentence' ? 'bg-cyan-600 text-white shadow-md' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                            >
+                                逐句
+                            </button>
+                            <button
+                                onClick={() => setTranslationMode('paragraph')}
+                                className={`px-6 py-2 text-sm font-medium rounded-md transition-all duration-200 ${translationMode === 'paragraph' ? 'bg-cyan-600 text-white shadow-md' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                            >
+                                逐段
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Loading State */}
@@ -260,12 +328,21 @@ function App() {
 
                 {/* Analysis View */}
                 {viewMode === 'analysis' && analysisResult && (
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                         {Array.isArray(analysisResult) ? (
                             analysisResult.map((item, index) => (
-                                <div key={index} className="p-4 rounded bg-gray-800 border border-gray-700 shadow-lg hover:border-cyan-400/50 transition">
-                                    <div className="mb-2 text-lg text-white font-medium">{item.en}</div>
-                                    <div className="mb-2 text-cyan-300">{item.zh}</div>
+                                <div
+                                    key={index}
+                                    className={`bg-gray-800/50 p-6 rounded-xl border border-gray-700 hover:border-cyan-500/50 transition-all group cursor-pointer ${highlightedText === item.en ? 'ring-2 ring-cyan-500 bg-gray-800' : ''}`}
+                                    onClick={() => handleAnalysisItemClick(item.en)}
+                                >
+                                    <p className="text-gray-300 mb-3 leading-relaxed font-serif text-lg group-hover:text-white transition-colors">
+                                        {item.en}
+                                    </p>
+                                    <div className="h-px w-full bg-gray-700 my-3 group-hover:bg-cyan-500/30 transition-colors" />
+                                    <p className="text-cyan-300 leading-relaxed font-sans text-lg">
+                                        {item.zh}
+                                    </p>
                                 </div>
                             ))
                         ) : (

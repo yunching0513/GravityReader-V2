@@ -63,7 +63,7 @@ body {
 }
 
 .bg-gray-900 {
-  background-color: #111827;
+  background-color: #202225;
 }
 
 .bg-gray-800 {
@@ -174,4 +174,13 @@ mark {
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #6b7280;
+}
+
+.font-zen {
+  font-family: 'Zen Maru Gothic', sans-serif;
+}
+
+.font-microsoft {
+  font-family: 'Microsoft JhengHei', '微軟正黑體', sans-serif;
+  font-weight: 700;
 }

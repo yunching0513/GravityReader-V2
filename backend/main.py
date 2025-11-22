@@ -33,6 +33,7 @@ app.add_middleware(
 
 class AnalyzeRequest(BaseModel):
     text: str
+    mode: str = "sentence"  # "sentence" or "paragraph"
 
 class SummarizeRequest(BaseModel):
     text: str
@@ -40,18 +41,28 @@ class SummarizeRequest(BaseModel):
 
 @app.post("/api/analyze")
 async def analyze_text(request: AnalyzeRequest):
-    logger.info("🔥 Received Text...")
+    logger.info(f"🔥 Received Text Analysis Request (Mode: {request.mode})...")
     
     if not request.text:
         raise HTTPException(status_code=400, detail="No text provided")
 
     try:
         model = genai.GenerativeModel('models/gemini-2.0-flash')
+        
+        instruction = ""
+        if request.mode == "paragraph":
+            instruction = "Split the text by PARAGRAPHS. Translate each paragraph as a whole unit."
+        else:
+            instruction = "Split the text by SENTENCES. Translate each sentence individually."
+
         prompt = f"""
         You are a professional translator. Translate the following English text into fluent Traditional Chinese (Taiwan).
+        
+        Instruction: {instruction}
+        
         Strict Output Format: Return a raw JSON list of objects. Each object must have ONLY two fields:
         
-        en: The original English sentence.
+        en: The original English text segment (sentence or paragraph).
         zh: The Traditional Chinese translation. DO NOT provide any grammar notes, vocabulary lists, or explanations. Just the translation.
         
         Text to analyze:
