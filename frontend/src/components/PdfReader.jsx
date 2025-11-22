@@ -6,7 +6,7 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 // Critical Worker Fix
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
-const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightColor, externalFile }) => {
+const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -16,9 +16,16 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
     React.useEffect(() => {
         if (externalFile) {
             setFile(externalFile);
-            setPageNumber(1);
+            setPageNumber(initialPage || 1);
         }
-    }, [externalFile]);
+    }, [externalFile, initialPage]);
+
+    // Notify parent of page change
+    React.useEffect(() => {
+        if (onPageChange) {
+            onPageChange(pageNumber);
+        }
+    }, [pageNumber, onPageChange]);
 
     function onDocumentLoadSuccess(pdf) {
         setNumPages(pdf.numPages);

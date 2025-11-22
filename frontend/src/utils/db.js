@@ -6,7 +6,7 @@ export const initDB = () => {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-        request.onerror = (event) => reject('IndexedDB error: ' + event.target.error);
+        request.onerror = (event) => reject("IndexedDB error: " + event.target.error);
 
         request.onsuccess = (event) => resolve(event.target.result);
 
@@ -46,12 +46,7 @@ export const getFiles = async () => {
         const store = transaction.objectStore(STORE_NAME);
         const request = store.getAll();
 
-        request.onsuccess = () => {
-            // Return metadata only (not the full blob) to save memory if list is long, 
-            // but for simplicity we return everything for now. 
-            // Optimization: We could separate metadata and content stores.
-            resolve(request.result);
-        };
+        request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
     });
 };
@@ -65,5 +60,28 @@ export const deleteFile = async (id) => {
 
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
+    });
+};
+
+export const updateFilePage = async (id, page) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const getRequest = store.get(id);
+
+        getRequest.onsuccess = () => {
+            const data = getRequest.result;
+            if (data) {
+                data.lastPage = page;
+                data.timestamp = new Date().getTime(); // Update timestamp to show as recently accessed
+                const updateRequest = store.put(data);
+                updateRequest.onsuccess = () => resolve();
+                updateRequest.onerror = () => reject(updateRequest.error);
+            } else {
+                reject("File not found");
+            }
+        };
+        getRequest.onerror = () => reject(getRequest.error);
     });
 };
