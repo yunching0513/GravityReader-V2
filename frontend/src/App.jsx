@@ -31,7 +31,7 @@ function App() {
     const [openSection, setOpenSection] = useState('library'); // 'library' | 'export' | 'summary'
 
     // API Configuration
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/analyze';
 
     // Load Library on Mount
     useEffect(() => {
@@ -129,7 +129,7 @@ function App() {
 
         try {
             // Call Backend API
-            const response = await axios.post(`${API_URL}/api/analyze`, {
+            const response = await axios.post(API_URL, {
                 text,
                 mode: translationMode
             });
@@ -180,7 +180,9 @@ function App() {
 
         try {
             const text = await extractPdfText();
-            const response = await axios.post(`${API_URL}/api/summarize`, {
+            // Derive summarize URL from analyze URL
+            const summarizeUrl = API_URL.replace('/analyze', '/summarize');
+            const response = await axios.post(summarizeUrl, {
                 text: text.substring(0, 30000), // Limit text length to avoid payload issues
                 length: length
             });
