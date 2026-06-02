@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Sparkles, Zap, AlertCircle, Menu, Download, FileText, X, Book, Upload } from 'lucide-react';
+import { AlertCircle, Menu, X, Upload, ChevronDown } from 'lucide-react';
 import PdfReader from './components/PdfReader';
 import { saveFile, getFiles, deleteFile, updateFilePage } from './utils/db';
 
@@ -30,8 +30,13 @@ function App() {
     const [initialPage, setInitialPage] = useState(1);
     const [openSection, setOpenSection] = useState('library'); // 'library' | 'export' | 'summary'
 
+    // Reading preferences
+    const [fontMode, setFontMode] = useState('default'); // 'default' | 'zen'
+    const [highlightedText, setHighlightedText] = useState('');
+    const [highlightColor, setHighlightColor] = useState('rgba(193, 95, 60, 0.22)'); // 朱 vermilion
+
     // API Configuration
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/analyze';
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
     // Load Library on Mount
     useEffect(() => {
@@ -74,7 +79,7 @@ function App() {
         if (currentFileId) {
             try {
                 await updateFilePage(currentFileId, page);
-                // We don't reload the whole library here to avoid UI flickering, 
+                // We don't reload the whole library here to avoid UI flickering,
                 // but we could update the local state if we wanted to show the page number in the list.
             } catch (err) {
                 console.error("Failed to update page:", err);
@@ -129,7 +134,7 @@ function App() {
 
         try {
             // Call Backend API
-            const response = await axios.post(API_URL, {
+            const response = await axios.post(`${API_BASE_URL}/api/analyze`, {
                 text,
                 mode: translationMode
             });
@@ -147,7 +152,7 @@ function App() {
             setAnalysisResult(result);
         } catch (err) {
             console.error("API Error:", err);
-            setError("Failed to analyze text. Ensure backend is running.");
+            setError("無法分析文本，請確認後端服務正在運行。");
         } finally {
             setIsLoading(false);
         }
@@ -171,7 +176,7 @@ function App() {
 
     const handleSummarize = async (length) => {
         if (!pdfDocument) {
-            alert("Please load a PDF first.");
+            alert("請先載入 PDF 文件。");
             return;
         }
         setIsSummarizing(true);
@@ -180,16 +185,14 @@ function App() {
 
         try {
             const text = await extractPdfText();
-            // Derive summarize URL from analyze URL
-            const summarizeUrl = API_URL.replace('/analyze', '/summarize');
-            const response = await axios.post(summarizeUrl, {
+            const response = await axios.post(`${API_BASE_URL}/api/summarize`, {
                 text: text.substring(0, 30000), // Limit text length to avoid payload issues
                 length: length
             });
             setSummaryResult(response.data.summary);
         } catch (err) {
             console.error("Summarize Error:", err);
-            setError("Failed to summarize document.");
+            setError("文件摘要生成失敗。");
         } finally {
             setIsSummarizing(false);
         }
@@ -197,7 +200,7 @@ function App() {
 
     const handleExport = (type) => {
         if (!analysisResult || !Array.isArray(analysisResult)) {
-            alert("No analysis data to export.");
+            alert("尚無翻譯資料可匯出。");
             return;
         }
 
@@ -219,63 +222,74 @@ function App() {
         URL.revokeObjectURL(url);
     };
 
-    const [fontMode, setFontMode] = useState('default'); // 'default' | 'zen'
-    const [highlightedText, setHighlightedText] = useState('');
-    const [highlightColor, setHighlightColor] = useState('rgba(255, 255, 170, 0.5)'); // Default Yellow
-
     const handleAnalysisItemClick = (text) => {
         setHighlightedText(text);
     };
 
+    const isBusy = isLoading || isSummarizing;
+    const isEmpty = !isBusy && !analysisResult && !summaryResult && !error;
+
     return (
-        <div className={`flex h-screen w-screen overflow-hidden bg-[#202225] text-white font-sans relative ${fontMode === 'zen' ? 'font-zen' : 'font-microsoft'}`}>
+        <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}`}>
             {/* Sidebar Toggle */}
             <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="absolute top-4 left-4 z-50 p-2 bg-gray-800 rounded hover:bg-gray-700 transition-colors shadow-lg"
+                className="gr-menu-btn"
+                title={isSidebarOpen ? '關閉側欄' : '開啟側欄'}
             >
-                {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+                {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
 
-            {/* Sidebar Drawer */}
-            <div className={`fixed top-0 left-0 h-full w-64 bg-[#202225] border-r border-gray-700 z-40 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} pt-16 px-4 shadow-2xl overflow-y-auto custom-scrollbar`}>
+            {/* Backdrop */}
+            <div
+                className={`gr-backdrop ${isSidebarOpen ? 'is-open' : ''}`}
+                onClick={() => setIsSidebarOpen(false)}
+            />
 
-                {/* 1. My Library Section */}
-                <div className="mb-4 border-b border-gray-700 pb-4">
-                    <button
-                        onClick={() => toggleSection('library')}
-                        className="w-full flex items-center justify-between text-cyan-400 font-bold mb-2 hover:text-cyan-300 transition"
-                    >
-                        <span className="flex items-center gap-2"><Book size={18} /> 我的書庫</span>
-                        <span className="text-xs">{openSection === 'library' ? '▲' : '▼'}</span>
+            {/* Sidebar Drawer */}
+            <aside className={`gr-sidebar gr-scroll ${isSidebarOpen ? 'is-open' : ''}`}>
+                <div className="gr-side-head">
+                    <div className="gr-side-mark">Gravity<span>Reader</span></div>
+                    <div className="gr-side-sub">重力閱讀 · 雙語精讀 · II</div>
+                </div>
+
+                {/* 1. My Library */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('library')}>
+                        <span className="grp">
+                            <span className="num">01</span>
+                            <span className="zh">我的書庫</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'library' ? 'open' : ''}`} />
                     </button>
+                    <div className="gr-side-en">Library · 收藏文件</div>
 
                     {openSection === 'library' && (
-                        <div className="space-y-2 animate-fadeIn">
-                            {/* Upload Button */}
-                            <label className="flex items-center justify-center w-full p-2 bg-gray-800 hover:bg-gray-700 rounded cursor-pointer border border-dashed border-gray-600 hover:border-cyan-500 transition group">
-                                <Upload size={16} className="mr-2 text-gray-400 group-hover:text-cyan-400" />
-                                <span className="text-sm text-gray-300 group-hover:text-white">上傳新文件</span>
-                                <input type="file" onChange={handleFileChange} className="hidden" accept=".pdf" />
+                        <div className="gr-side-body">
+                            <label className="gr-upload">
+                                <Upload size={18} />
+                                <span className="zh">上傳新文件</span>
+                                <span className="en">Upload PDF</span>
+                                <input type="file" onChange={handleFileChange} style={{ display: 'none' }} accept=".pdf" />
                             </label>
 
-                            {/* File List */}
-                            <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1 mt-2">
+                            <div className="gr-filelist gr-scroll">
                                 {libraryFiles.length === 0 ? (
-                                    <p className="text-xs text-gray-500 text-center py-2">尚無文件</p>
+                                    <div className="gr-file-empty">尚無文件 · empty</div>
                                 ) : (
                                     libraryFiles.map(file => (
-                                        <div key={file.id} className="flex items-center justify-between p-2 bg-gray-800/50 hover:bg-gray-800 rounded group">
+                                        <div key={file.id} className={`gr-file ${currentFileId === file.id ? 'is-active' : ''}`}>
                                             <button
+                                                className="gr-file-name"
                                                 onClick={() => loadFileFromLibrary(file)}
-                                                className="text-sm text-gray-300 hover:text-white truncate text-left flex-1"
                                                 title={file.name}
                                             >
                                                 {file.name}
                                             </button>
                                             <button
+                                                className="gr-file-del"
                                                 onClick={(e) => { e.stopPropagation(); deleteFile(file.id).then(loadLibrary); }}
-                                                className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition p-1"
+                                                title="刪除"
                                             >
                                                 <X size={14} />
                                             </button>
@@ -285,73 +299,72 @@ function App() {
                             </div>
                         </div>
                     )}
-                </div>
+                </section>
 
-                {/* 2. Export Section */}
-                <div className="mb-4 border-b border-gray-700 pb-4">
-                    <button
-                        onClick={() => toggleSection('export')}
-                        className="w-full flex items-center justify-between text-green-400 font-bold mb-2 hover:text-green-300 transition"
-                    >
-                        <span className="flex items-center gap-2"><Download size={18} /> 匯出翻譯記錄</span>
-                        <span className="text-xs">{openSection === 'export' ? '▲' : '▼'}</span>
+                {/* 2. Export */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('export')}>
+                        <span className="grp">
+                            <span className="num">02</span>
+                            <span className="zh">匯出記錄</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'export' ? 'open' : ''}`} />
                     </button>
+                    <div className="gr-side-en">Export · 翻譯紀錄</div>
 
                     {openSection === 'export' && (
-                        <div className="flex flex-col gap-2 animate-fadeIn">
-                            <button onClick={() => handleExport('zh')} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm text-left transition border border-gray-700 hover:border-green-500/50">
-                                全中文下載 (.txt)
+                        <div className="gr-side-body">
+                            <button className="gr-side-btn" onClick={() => handleExport('zh')}>
+                                <span className="zh">全中文下載</span>
+                                <span className="en">Chinese only · .txt</span>
                             </button>
-                            <button onClick={() => handleExport('bilingual')} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm text-left transition border border-gray-700 hover:border-green-500/50">
-                                中英對照下載 (.txt)
+                            <button className="gr-side-btn" onClick={() => handleExport('bilingual')}>
+                                <span className="zh">中英對照下載</span>
+                                <span className="en">Bilingual · .txt</span>
                             </button>
                         </div>
                     )}
-                </div>
+                </section>
 
-                {/* 3. Summary Section */}
-                <div className="mb-4">
-                    <button
-                        onClick={() => toggleSection('summary')}
-                        className="w-full flex items-center justify-between text-pink-500 font-bold mb-2 hover:text-pink-400 transition"
-                    >
-                        <span className="flex items-center gap-2"><FileText size={18} /> 文章摘要</span>
-                        <span className="text-xs">{openSection === 'summary' ? '▲' : '▼'}</span>
+                {/* 3. Summary */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('summary')}>
+                        <span className="grp">
+                            <span className="num">03</span>
+                            <span className="zh">文章摘要</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'summary' ? 'open' : ''}`} />
                     </button>
+                    <div className="gr-side-en">Synopsis · 全文摘要</div>
 
                     {openSection === 'summary' && (
-                        <div className="animate-fadeIn">
-                            <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div className="gr-side-body">
+                            <div className="gr-len-grid">
                                 {[250, 500, 1000, 2000].map(len => (
-                                    <button key={len} onClick={() => handleSummarize(len)} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs transition border border-gray-700 hover:border-pink-500/50">
-                                        {len}字
+                                    <button key={len} className="gr-len-btn" onClick={() => handleSummarize(len)}>
+                                        <span className="v">{len}</span>
+                                        <span className="u">字</span>
                                     </button>
                                 ))}
                             </div>
-                            <div className="flex gap-2">
+                            <div className="gr-len-custom">
                                 <input
                                     type="number"
+                                    className="gr-input"
                                     value={customSummaryLength}
                                     onChange={(e) => setCustomSummaryLength(parseInt(e.target.value))}
-                                    className="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700"
                                 />
-                                <button onClick={() => handleSummarize(customSummaryLength)} className="px-3 py-1 bg-pink-600 hover:bg-pink-500 rounded text-sm whitespace-nowrap">
+                                <button className="gr-btn gr-btn--accent" onClick={() => handleSummarize(customSummaryLength)}>
                                     生成
                                 </button>
                             </div>
                         </div>
                     )}
-                </div>
-            </div>
+                </section>
+            </aside>
 
-            {/* Left Panel - PDF Reader */}
-            <div
-                className="h-full border-r border-gray-700 flex flex-col relative"
-                style={{ width: `${leftWidth}%`, minWidth: '20%' }}
-            >
-                <div className="absolute top-0 left-0 w-full p-2 pl-16 z-10 bg-[#202225]/80 backdrop-blur text-cyan-400 font-bold flex items-center gap-2 pointer-events-none">
-                    <Zap size={18} /> GravityReader V2
-                </div>
+            {/* Left Panel — PDF Reader */}
+            <div className="gr-reader" style={{ width: `${leftWidth}%`, minWidth: '20%' }}>
                 <PdfReader
                     onTextSelect={handleTextSelect}
                     onDocumentLoad={handleDocumentLoad}
@@ -363,135 +376,132 @@ function App() {
                 />
             </div>
 
-            {/* Resizer Handle */}
+            {/* Resizer */}
             <div
-                className="w-1 h-full bg-gray-800 hover:bg-cyan-500 cursor-col-resize transition-colors z-20"
+                className={`gr-resizer ${isDragging ? 'is-dragging' : ''}`}
                 onMouseDown={() => setIsDragging(true)}
             />
 
-            {/* Right Panel - Analysis / Summary */}
-            <div
-                className="h-full flex flex-col bg-[#202225] p-6 overflow-auto relative"
-                style={{ width: `${100 - leftWidth}%` }}
-            >
-                {/* Header Section */}
-                <div className="mb-6 border-b border-gray-700 pb-4 flex justify-between items-end relative">
+            {/* Right Panel — Analysis / Summary */}
+            <div className="gr-analysis" style={{ width: `${100 - leftWidth}%` }}>
+                {/* Header */}
+                <div className="gr-analysis-head">
                     <div>
-                        <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 flex items-center gap-2">
-                            <Sparkles className="text-pink-500" />
-                            {viewMode === 'summary' ? 'Document Summary' : 'Neural Analysis'}
-                        </h2>
-                        <p className="text-gray-400 text-sm mt-1">
-                            {viewMode === 'summary' ? 'AI-generated summary of the document.' : 'Select text in the PDF to analyze.'}
-                        </p>
-                    </div>
-
-                    {/* Highlight Color Toggle */}
-                    <div className="absolute top-0 right-64 flex gap-2">
-                        <button
-                            onClick={() => setHighlightColor('rgba(255, 255, 170, 0.5)')}
-                            className={`w-6 h-6 rounded-full border-2 ${highlightColor.includes('170') ? 'border-white' : 'border-transparent'}`}
-                            style={{ backgroundColor: 'rgba(255, 255, 170, 1)' }}
-                            title="Yellow Highlight"
-                        />
-                        <button
-                            onClick={() => setHighlightColor('rgba(255, 151, 151, 0.5)')}
-                            className={`w-6 h-6 rounded-full border-2 ${highlightColor.includes('151') ? 'border-white' : 'border-transparent'}`}
-                            style={{ backgroundColor: 'rgba(255, 151, 151, 1)' }}
-                            title="Red Highlight"
-                        />
-                    </div>
-
-                    {/* Font Toggle */}
-                    <button
-                        onClick={() => setFontMode(fontMode === 'default' ? 'zen' : 'default')}
-                        className={`absolute top-0 right-48 px-3 py-1 text-xs rounded border border-gray-600 transition-colors ${fontMode === 'zen' ? 'bg-pink-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                        title="Toggle Zen Maru Gothic Font"
-                    >
-                        Aa
-                    </button>
-
-                    {/* Translation Mode Toggle */}
-                    {viewMode === 'analysis' && (
-                        <div className="absolute bottom-4 right-10 flex bg-gray-800 rounded-lg p-1 border border-gray-700 shadow-lg">
-                            <button
-                                onClick={() => setTranslationMode('sentence')}
-                                className={`px-6 py-2 text-sm font-medium rounded-md transition-all duration-200 ${translationMode === 'sentence' ? 'bg-cyan-600 text-white shadow-md' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
-                            >
-                                逐句
-                            </button>
-                            <button
-                                onClick={() => setTranslationMode('paragraph')}
-                                className={`px-6 py-2 text-sm font-medium rounded-md transition-all duration-200 ${translationMode === 'paragraph' ? 'bg-cyan-600 text-white shadow-md' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
-                            >
-                                逐段
-                            </button>
+                        <div className="gr-head-kicker">
+                            {viewMode === 'summary' ? 'Synopsis — full-text digest' : 'Close Reading — bilingual study'}
                         </div>
-                    )}
-                </div>
-
-                {/* Loading State */}
-                {(isLoading || isSummarizing) && (
-                    <div className="flex items-center justify-center h-40 animate-pulse text-cyan-400">
-                        {isSummarizing ? 'Synthesizing document summary...' : 'Analyzing quantum data...'}
-                    </div>
-                )}
-
-                {/* Error State */}
-                {error && (
-                    <div className="p-4 bg-red-900/20 border border-red-500/50 rounded text-red-200 flex items-center gap-2">
-                        <AlertCircle size={18} /> {error}
-                    </div>
-                )}
-
-                {/* Summary View */}
-                {viewMode === 'summary' && summaryResult && (
-                    <div className="p-8 overflow-y-auto h-full custom-scrollbar">
-                        <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                            <Sparkles className="text-purple-400" /> 文章摘要
-                        </h2>
-
-                        <div className="text-gray-300 space-y-4 leading-8 text-justify tracking-wide whitespace-pre-wrap">
-                            {summaryResult}
+                        <div className="gr-head-title">
+                            {viewMode === 'summary' ? '全文摘要' : '對譯精讀'}
+                        </div>
+                        <div className="gr-head-sub">
+                            {viewMode === 'summary' ? '由 AI 生成的全文摘要。' : '於左側 PDF 中選取文字以進行對譯。'}
                         </div>
                     </div>
-                )}
 
-                {/* Analysis View */}
-                {viewMode === 'analysis' && analysisResult && (
-                    <div className="space-y-6">
-                        {Array.isArray(analysisResult) ? (
-                            analysisResult.map((item, index) => (
-                                <div
-                                    key={index}
-                                    className={`bg-gray-800/50 p-6 rounded-xl border border-gray-700 hover:border-cyan-500/50 transition-all group cursor-pointer ${highlightedText === item.en ? 'ring-2 ring-cyan-500 bg-gray-800' : ''}`}
-                                    onClick={() => handleAnalysisItemClick(item.en)}
+                    <div className="gr-head-tools">
+                        {/* Highlight color */}
+                        <div className="gr-tool-group">
+                            <span className="gr-tool-label">標</span>
+                            <button
+                                className={`gr-swatch ${highlightColor.includes('95, 60') ? 'is-active' : ''}`}
+                                style={{ background: 'rgba(193, 95, 60, 0.45)' }}
+                                onClick={() => setHighlightColor('rgba(193, 95, 60, 0.22)')}
+                                title="朱 · Vermilion"
+                            />
+                            <button
+                                className={`gr-swatch ${highlightColor.includes('124, 115') ? 'is-active' : ''}`}
+                                style={{ background: 'rgba(128, 124, 115, 0.45)' }}
+                                onClick={() => setHighlightColor('rgba(128, 124, 115, 0.28)')}
+                                title="鋼灰 · Steel"
+                            />
+                        </div>
+
+                        {/* Font toggle */}
+                        <button
+                            className={`gr-btn ${fontMode === 'zen' ? 'gr-btn--solid' : ''}`}
+                            onClick={() => setFontMode(fontMode === 'default' ? 'zen' : 'default')}
+                            title="切換 Zen Maru Gothic 字體"
+                        >
+                            Aa
+                        </button>
+
+                        {/* Translation mode */}
+                        {viewMode === 'analysis' && (
+                            <div className="gr-seg">
+                                <button
+                                    className={translationMode === 'sentence' ? 'is-active' : ''}
+                                    onClick={() => setTranslationMode('sentence')}
                                 >
-                                    <p className="text-gray-300 mb-3 leading-relaxed font-serif text-lg group-hover:text-white transition-colors">
-                                        {item.en}
-                                    </p>
-                                    <div className="h-px w-full bg-gray-700 my-3 group-hover:bg-cyan-500/30 transition-colors" />
-                                    <p className="text-cyan-300 leading-relaxed font-sans text-lg">
-                                        {item.zh}
-                                    </p>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="p-4 rounded bg-gray-800 border border-gray-700">
-                                <pre className="whitespace-pre-wrap text-sm text-gray-300">
-                                    {JSON.stringify(analysisResult, null, 2)}
-                                </pre>
+                                    逐句
+                                </button>
+                                <button
+                                    className={translationMode === 'paragraph' ? 'is-active' : ''}
+                                    onClick={() => setTranslationMode('paragraph')}
+                                >
+                                    逐段
+                                </button>
                             </div>
                         )}
                     </div>
-                )}
+                </div>
 
-                {/* Empty State */}
-                {!isLoading && !isSummarizing && !analysisResult && !summaryResult && !error && (
-                    <div className="flex-1 flex items-center justify-center text-gray-600 italic">
-                        Waiting for input stream...
-                    </div>
-                )}
+                {/* Body */}
+                <div className="gr-analysis-body gr-scroll">
+                    {/* Loading */}
+                    {isBusy && (
+                        <div className="gr-loading">
+                            <div className="en">{isSummarizing ? 'Synthesizing synopsis' : 'Reading the passage'}</div>
+                            <div className="gr-bar" />
+                            <div className="zh">{isSummarizing ? '正在凝練摘要' : '正在對譯文本'}</div>
+                        </div>
+                    )}
+
+                    {/* Error */}
+                    {error && (
+                        <div className="gr-error">
+                            <AlertCircle size={18} /> {error}
+                        </div>
+                    )}
+
+                    {/* Summary */}
+                    {!isBusy && viewMode === 'summary' && summaryResult && (
+                        <div className="gr-summary">
+                            <div className="gr-summary-text">{summaryResult}</div>
+                        </div>
+                    )}
+
+                    {/* Analysis */}
+                    {!isBusy && viewMode === 'analysis' && analysisResult && (
+                        Array.isArray(analysisResult) ? (
+                            <div className="gr-cards">
+                                {analysisResult.map((item, index) => (
+                                    <div
+                                        key={index}
+                                        className={`gr-entry ${highlightedText === item.en ? 'is-active' : ''}`}
+                                        onClick={() => handleAnalysisItemClick(item.en)}
+                                    >
+                                        <span className="gr-entry-n">{String(index + 1).padStart(2, '0')}</span>
+                                        <p className="gr-entry-en">{item.en}</p>
+                                        <div className="gr-entry-rule" />
+                                        <p className="gr-entry-zh">{item.zh}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <pre className="gr-raw">{JSON.stringify(analysisResult, null, 2)}</pre>
+                        )
+                    )}
+
+                    {/* Empty */}
+                    {isEmpty && (
+                        <div className="gr-empty" style={{ minHeight: '60vh' }}>
+                            <div className="glyph">間</div>
+                            <div className="en">Awaiting the text</div>
+                            <div className="zh">靜待文本</div>
+                            <div className="hint">select text in the pdf</div>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
