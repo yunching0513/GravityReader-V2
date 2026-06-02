@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { AlertCircle, Menu, X, Upload, ChevronDown } from 'lucide-react';
+import { AlertCircle, Menu, X, Upload, ChevronDown, Plus, Check, Trash2 } from 'lucide-react';
 import PdfReader from './components/PdfReader';
-import { saveFile, getFiles, deleteFile, updateFilePage } from './utils/db';
+import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote } from './utils/db';
 
 function App() {
     const [inputText, setInputText] = useState('');
@@ -35,6 +35,12 @@ function App() {
     const [highlightedText, setHighlightedText] = useState('');
     const [highlightColor, setHighlightColor] = useState('rgba(193, 95, 60, 0.22)'); // 朱 vermilion
 
+    // Notes State (per-document)
+    const [activeTab, setActiveTab] = useState('reading'); // 'reading' | 'notes'
+    const [notes, setNotes] = useState([]);
+    const [noteDraft, setNoteDraft] = useState('');
+    const [justCaptured, setJustCaptured] = useState(null);
+
     // API Configuration
     const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -50,6 +56,75 @@ function App() {
         } catch (err) {
             console.error("Failed to load library:", err);
         }
+    };
+
+    // Load this document's notes whenever the active file changes.
+    useEffect(() => {
+        if (!currentFileId) { setNotes([]); return; }
+        getNotes(currentFileId)
+            .then(list => setNotes(list.sort((a, b) => b.createdAt - a.createdAt)))
+            .catch(err => console.error("Failed to load notes:", err));
+    }, [currentFileId]);
+
+    const refreshNotes = async () => {
+        if (!currentFileId) return;
+        const list = await getNotes(currentFileId);
+        setNotes(list.sort((a, b) => b.createdAt - a.createdAt));
+    };
+
+    const handleAddNote = async () => {
+        const text = noteDraft.trim();
+        if (!text || !currentFileId) return;
+        await addNote({ fileId: currentFileId, text, source: 'manual' });
+        setNoteDraft('');
+        refreshNotes();
+    };
+
+    const handleCaptureEntry = async (en, zh) => {
+        if (!currentFileId) {
+            alert("請先從書庫開啟一份文件，才能擷取為筆記。");
+            return;
+        }
+        await addNote({ fileId: currentFileId, en, zh, source: 'reading' });
+        setJustCaptured(en);
+        setTimeout(() => setJustCaptured(null), 1200);
+        refreshNotes();
+    };
+
+    const handleDeleteNote = async (id) => {
+        await deleteNote(id);
+        refreshNotes();
+    };
+
+    const handleExportNotes = () => {
+        if (!notes.length) {
+            alert("這份文件尚無筆記可匯出。");
+            return;
+        }
+        const ordered = [...notes].sort((a, b) => a.createdAt - b.createdAt);
+        const content = ordered.map(n => {
+            const t = new Date(n.createdAt).toLocaleString();
+            if (n.source === 'reading') {
+                return `[${t}]\n[EN] ${n.en}\n[ZH] ${n.zh}${n.text ? `\n${n.text}` : ''}`;
+            }
+            return `[${t}]\n${n.text}`;
+        }).join('\n\n──────────\n\n');
+
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `notes_${new Date().getTime()}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    const fmtTime = (ts) => {
+        const d = new Date(ts);
+        const p = (n) => String(n).padStart(2, '0');
+        return `${p(d.getMonth() + 1)}.${p(d.getDate())} · ${p(d.getHours())}:${p(d.getMinutes())}`;
     };
 
     const handleFileChange = async (e) => {
@@ -127,6 +202,7 @@ function App() {
 
     const handleTextSelect = async (text) => {
         setInputText(text);
+        setActiveTab('reading');
         setViewMode('analysis');
         setIsLoading(true);
         setError(null);
@@ -180,6 +256,7 @@ function App() {
             return;
         }
         setIsSummarizing(true);
+        setActiveTab('reading');
         setViewMode('summary');
         setSummaryResult(null);
 
@@ -228,6 +305,7 @@ function App() {
 
     const isBusy = isLoading || isSummarizing;
     const isEmpty = !isBusy && !analysisResult && !summaryResult && !error;
+    const currentFileName = libraryFiles.find(f => f.id === currentFileId)?.name;
 
     return (
         <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}`}>
@@ -322,6 +400,10 @@ function App() {
                                 <span className="zh">中英對照下載</span>
                                 <span className="en">Bilingual · .txt</span>
                             </button>
+                            <button className="gr-side-btn" onClick={handleExportNotes}>
+                                <span className="zh">筆記下載</span>
+                                <span className="en">Notes · .txt</span>
+                            </button>
                         </div>
                     )}
                 </section>
@@ -386,35 +468,53 @@ function App() {
             <div className="gr-analysis" style={{ width: `${100 - leftWidth}%` }}>
                 {/* Header */}
                 <div className="gr-analysis-head">
-                    <div>
-                        <div className="gr-head-kicker">
-                            {viewMode === 'summary' ? 'Synopsis — full-text digest' : 'Close Reading — bilingual study'}
+                    <div className="gr-head-main">
+                        <div className="gr-tabs">
+                            <button
+                                className={`gr-tab ${activeTab === 'reading' ? 'is-active' : ''}`}
+                                onClick={() => setActiveTab('reading')}
+                            >
+                                精讀<em>Reading</em>
+                            </button>
+                            <button
+                                className={`gr-tab ${activeTab === 'notes' ? 'is-active' : ''}`}
+                                onClick={() => setActiveTab('notes')}
+                            >
+                                筆記<em>Notes</em>
+                                {notes.length > 0 && <span className="gr-tab-count">{notes.length}</span>}
+                            </button>
                         </div>
                         <div className="gr-head-title">
-                            {viewMode === 'summary' ? '全文摘要' : '對譯精讀'}
+                            {activeTab === 'notes'
+                                ? '我的筆記'
+                                : (viewMode === 'summary' ? '全文摘要' : '對譯精讀')}
                         </div>
                         <div className="gr-head-sub">
-                            {viewMode === 'summary' ? '由 AI 生成的全文摘要。' : '於左側 PDF 中選取文字以進行對譯。'}
+                            {activeTab === 'notes'
+                                ? (currentFileName ? `《${currentFileName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
+                                : (viewMode === 'summary' ? '由 AI 生成的全文摘要。' : '於左側 PDF 中選取文字以進行對譯。')}
                         </div>
                     </div>
 
                     <div className="gr-head-tools">
-                        {/* Highlight color */}
-                        <div className="gr-tool-group">
-                            <span className="gr-tool-label">標</span>
-                            <button
-                                className={`gr-swatch ${highlightColor.includes('95, 60') ? 'is-active' : ''}`}
-                                style={{ background: 'rgba(193, 95, 60, 0.45)' }}
-                                onClick={() => setHighlightColor('rgba(193, 95, 60, 0.22)')}
-                                title="朱 · Vermilion"
-                            />
-                            <button
-                                className={`gr-swatch ${highlightColor.includes('124, 115') ? 'is-active' : ''}`}
-                                style={{ background: 'rgba(128, 124, 115, 0.45)' }}
-                                onClick={() => setHighlightColor('rgba(128, 124, 115, 0.28)')}
-                                title="鋼灰 · Steel"
-                            />
-                        </div>
+                        {/* Highlight color — reading only */}
+                        {activeTab === 'reading' && (
+                            <div className="gr-tool-group">
+                                <span className="gr-tool-label">標</span>
+                                <button
+                                    className={`gr-swatch ${highlightColor.includes('95, 60') ? 'is-active' : ''}`}
+                                    style={{ background: 'rgba(193, 95, 60, 0.45)' }}
+                                    onClick={() => setHighlightColor('rgba(193, 95, 60, 0.22)')}
+                                    title="朱 · Vermilion"
+                                />
+                                <button
+                                    className={`gr-swatch ${highlightColor.includes('124, 115') ? 'is-active' : ''}`}
+                                    style={{ background: 'rgba(128, 124, 115, 0.45)' }}
+                                    onClick={() => setHighlightColor('rgba(128, 124, 115, 0.28)')}
+                                    title="鋼灰 · Steel"
+                                />
+                            </div>
+                        )}
 
                         {/* Font toggle */}
                         <button
@@ -425,8 +525,8 @@ function App() {
                             Aa
                         </button>
 
-                        {/* Translation mode */}
-                        {viewMode === 'analysis' && (
+                        {/* Translation mode — reading + analysis only */}
+                        {activeTab === 'reading' && viewMode === 'analysis' && (
                             <div className="gr-seg">
                                 <button
                                     className={translationMode === 'sentence' ? 'is-active' : ''}
@@ -447,59 +547,138 @@ function App() {
 
                 {/* Body */}
                 <div className="gr-analysis-body gr-scroll">
-                    {/* Loading */}
-                    {isBusy && (
-                        <div className="gr-loading">
-                            <div className="en">{isSummarizing ? 'Synthesizing synopsis' : 'Reading the passage'}</div>
-                            <div className="gr-bar" />
-                            <div className="zh">{isSummarizing ? '正在凝練摘要' : '正在對譯文本'}</div>
-                        </div>
-                    )}
+                    {activeTab === 'reading' && (
+                        <>
+                            {/* Loading */}
+                            {isBusy && (
+                                <div className="gr-loading">
+                                    <div className="en">{isSummarizing ? 'Synthesizing synopsis' : 'Reading the passage'}</div>
+                                    <div className="gr-bar" />
+                                    <div className="zh">{isSummarizing ? '正在凝練摘要' : '正在對譯文本'}</div>
+                                </div>
+                            )}
 
-                    {/* Error */}
-                    {error && (
-                        <div className="gr-error">
-                            <AlertCircle size={18} /> {error}
-                        </div>
-                    )}
+                            {/* Error */}
+                            {error && (
+                                <div className="gr-error">
+                                    <AlertCircle size={18} /> {error}
+                                </div>
+                            )}
 
-                    {/* Summary */}
-                    {!isBusy && viewMode === 'summary' && summaryResult && (
-                        <div className="gr-summary">
-                            <div className="gr-summary-text">{summaryResult}</div>
-                        </div>
-                    )}
+                            {/* Summary */}
+                            {!isBusy && viewMode === 'summary' && summaryResult && (
+                                <div className="gr-summary">
+                                    <div className="gr-summary-text">{summaryResult}</div>
+                                </div>
+                            )}
 
-                    {/* Analysis */}
-                    {!isBusy && viewMode === 'analysis' && analysisResult && (
-                        Array.isArray(analysisResult) ? (
-                            <div className="gr-cards">
-                                {analysisResult.map((item, index) => (
-                                    <div
-                                        key={index}
-                                        className={`gr-entry ${highlightedText === item.en ? 'is-active' : ''}`}
-                                        onClick={() => handleAnalysisItemClick(item.en)}
-                                    >
-                                        <span className="gr-entry-n">{String(index + 1).padStart(2, '0')}</span>
-                                        <p className="gr-entry-en">{item.en}</p>
-                                        <div className="gr-entry-rule" />
-                                        <p className="gr-entry-zh">{item.zh}</p>
+                            {/* Analysis */}
+                            {!isBusy && viewMode === 'analysis' && analysisResult && (
+                                Array.isArray(analysisResult) ? (
+                                    <div className="gr-cards">
+                                        {analysisResult.map((item, index) => (
+                                            <div
+                                                key={index}
+                                                className={`gr-entry ${highlightedText === item.en ? 'is-active' : ''}`}
+                                                onClick={() => handleAnalysisItemClick(item.en)}
+                                            >
+                                                <span className="gr-entry-n">{String(index + 1).padStart(2, '0')}</span>
+                                                <button
+                                                    className="gr-entry-capture"
+                                                    onClick={(e) => { e.stopPropagation(); handleCaptureEntry(item.en, item.zh); }}
+                                                    title="擷取為筆記"
+                                                >
+                                                    {justCaptured === item.en ? <Check size={14} /> : <Plus size={14} />}
+                                                </button>
+                                                <p className="gr-entry-en">{item.en}</p>
+                                                <div className="gr-entry-rule" />
+                                                <p className="gr-entry-zh">{item.zh}</p>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
+                                ) : (
+                                    <pre className="gr-raw">{JSON.stringify(analysisResult, null, 2)}</pre>
+                                )
+                            )}
+
+                            {/* Empty */}
+                            {isEmpty && (
+                                <div className="gr-empty" style={{ minHeight: '60vh' }}>
+                                    <div className="glyph">間</div>
+                                    <div className="en">Awaiting the text</div>
+                                    <div className="zh">靜待文本</div>
+                                    <div className="hint">select text in the pdf</div>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {/* Notes */}
+                    {activeTab === 'notes' && (
+                        !currentFileId ? (
+                            <div className="gr-empty" style={{ minHeight: '60vh' }}>
+                                <div className="glyph">錄</div>
+                                <div className="en">No document open</div>
+                                <div className="zh">開啟文件以開始筆記</div>
+                                <div className="hint">open a pdf from the library</div>
                             </div>
                         ) : (
-                            <pre className="gr-raw">{JSON.stringify(analysisResult, null, 2)}</pre>
-                        )
-                    )}
+                            <div className="gr-notes">
+                                <div className="gr-note-composer">
+                                    <textarea
+                                        className="gr-note-input"
+                                        value={noteDraft}
+                                        onChange={(e) => setNoteDraft(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleAddNote();
+                                        }}
+                                        placeholder="寫下你的想法、引文或提問…"
+                                        rows={3}
+                                    />
+                                    <div className="gr-note-bar">
+                                        <span className="hint">⌘ + Enter 送出</span>
+                                        <button
+                                            className="gr-btn gr-btn--accent"
+                                            onClick={handleAddNote}
+                                            disabled={!noteDraft.trim()}
+                                        >
+                                            記下
+                                        </button>
+                                    </div>
+                                </div>
 
-                    {/* Empty */}
-                    {isEmpty && (
-                        <div className="gr-empty" style={{ minHeight: '60vh' }}>
-                            <div className="glyph">間</div>
-                            <div className="en">Awaiting the text</div>
-                            <div className="zh">靜待文本</div>
-                            <div className="hint">select text in the pdf</div>
-                        </div>
+                                {notes.length === 0 ? (
+                                    <div className="gr-note-empty">
+                                        尚無筆記 · 從上方寫下，或在「精讀」中點 ＋ 擷取對譯
+                                    </div>
+                                ) : (
+                                    <div className="gr-notes-list">
+                                        {notes.map((n) => (
+                                            <div className="gr-note" key={n.id}>
+                                                <div className="gr-note-head">
+                                                    <span className="gr-note-time">{fmtTime(n.createdAt)}</span>
+                                                    {n.source === 'reading' && <span className="gr-note-tag">對譯</span>}
+                                                    <button
+                                                        className="gr-note-del"
+                                                        onClick={() => handleDeleteNote(n.id)}
+                                                        title="刪除"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+                                                {n.source === 'reading' && (
+                                                    <div className="gr-note-quote">
+                                                        <p className="gr-note-en">{n.en}</p>
+                                                        <p className="gr-note-zh">{n.zh}</p>
+                                                    </div>
+                                                )}
+                                                {n.text && <p className="gr-note-text">{n.text}</p>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )
                     )}
                 </div>
             </div>
