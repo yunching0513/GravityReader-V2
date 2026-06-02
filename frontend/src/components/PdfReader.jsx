@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
+import { ChevronLeft, ChevronRight, Minus, Plus, Upload } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
@@ -113,7 +114,7 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
                     spanMap.forEach(item => {
                         // Check for intersection
                         if (item.end > startOriginalIndex && item.start < endOriginalIndex) {
-                            item.element.style.backgroundColor = highlightColor || 'rgba(255, 255, 170, 0.5)';
+                            item.element.style.backgroundColor = highlightColor || 'rgba(193, 95, 60, 0.22)';
                             item.element.style.transition = 'background-color 0.3s';
                         }
                     });
@@ -140,48 +141,54 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
     };
 
     return (
-        <div className="h-full flex flex-col" onMouseUp={handleMouseUp}>
-            <div className="p-4 bg-gray-800 border-b border-gray-700 flex items-center gap-4 justify-between">
-                <div className="flex items-center gap-4">
-                    <input type="file" onChange={onFileChange} className="text-white" accept=".pdf" />
-                    {file && (
-                        <div className="text-white flex gap-2 items-center">
-                            <button
-                                disabled={pageNumber <= 1}
-                                onClick={() => setPageNumber(prev => prev - 1)}
-                                className="px-2 py-1 bg-gray-700 rounded disabled:opacity-50"
-                            >
-                                Prev
+        <div className="gr-reader" style={{ border: 'none', height: '100%' }} onMouseUp={handleMouseUp}>
+            <div className="gr-reader-bar">
+                <div className="gr-brand">
+                    <span className="mark">Gravity<b>Reader</b></span>
+                    <span className="zh">重力閱讀</span>
+                </div>
+
+                {file && (
+                    <div className="gr-ctrls">
+                        <button
+                            className="gr-btn gr-btn--icon"
+                            disabled={pageNumber <= 1}
+                            onClick={() => setPageNumber(prev => prev - 1)}
+                            title="上一頁"
+                        >
+                            <ChevronLeft size={15} />
+                        </button>
+                        <span className="gr-page-ind">
+                            <b>{String(pageNumber).padStart(2, '0')}</b> / {numPages ? String(numPages).padStart(2, '0') : '··'}
+                        </span>
+                        <button
+                            className="gr-btn gr-btn--icon"
+                            disabled={pageNumber >= numPages}
+                            onClick={() => setPageNumber(prev => prev + 1)}
+                            title="下一頁"
+                        >
+                            <ChevronRight size={15} />
+                        </button>
+
+                        <div className="gr-zoom">
+                            <button className="gr-btn gr-btn--icon" onClick={() => setScale(s => Math.max(s - 0.1, 0.5))} title="縮小">
+                                <Minus size={14} />
                             </button>
-                            <span>Page {pageNumber} of {numPages}</span>
-                            <button
-                                disabled={pageNumber >= numPages}
-                                onClick={() => setPageNumber(prev => prev + 1)}
-                                className="px-2 py-1 bg-gray-700 rounded disabled:opacity-50"
-                            >
-                                Next
+                            <span className="gr-zoom-val">{Math.round(scale * 100)}%</span>
+                            <button className="gr-btn gr-btn--icon" onClick={() => setScale(s => Math.min(s + 0.1, 3.0))} title="放大">
+                                <Plus size={14} />
                             </button>
                         </div>
-                    )}
-                </div>
-                {file && (
-                    <div className="text-white text-sm flex items-center gap-2">
-                        <button onClick={() => setScale(s => Math.max(s - 0.1, 0.5))} className="px-2 bg-gray-700 rounded">-</button>
-                        <span>{Math.round(scale * 100)}%</span>
-                        <button onClick={() => setScale(s => Math.min(s + 0.1, 3.0))} className="px-2 bg-gray-700 rounded">+</button>
                     </div>
                 )}
             </div>
 
-            <div
-                className="flex-1 overflow-auto bg-gray-900 flex justify-center p-4"
-                onWheel={handleWheel}
-            >
+            <div className="gr-canvas gr-scroll" onWheel={handleWheel}>
                 {file ? (
                     <Document
                         file={file}
                         onLoadSuccess={onDocumentLoadSuccess}
-                        className="shadow-lg"
+                        className="gr-doc"
                     >
                         <Page
                             pageNumber={pageNumber}
@@ -192,8 +199,15 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
                         />
                     </Document>
                 ) : (
-                    <div className="text-gray-500 flex items-center justify-center h-full">
-                        Select a PDF to start reading
+                    <div className="gr-empty">
+                        <div className="glyph">空</div>
+                        <div className="en">An empty page</div>
+                        <label className="gr-upload" style={{ marginTop: '8px' }}>
+                            <Upload size={18} />
+                            <span className="zh">選擇 PDF 開始閱讀</span>
+                            <span className="en">Open a document</span>
+                            <input type="file" onChange={onFileChange} style={{ display: 'none' }} accept=".pdf" />
+                        </label>
                     </div>
                 )}
             </div>
