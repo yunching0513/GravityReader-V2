@@ -30,6 +30,10 @@ if not GOOGLE_API_KEY:
 else:
     genai.configure(api_key=GOOGLE_API_KEY)
 
+# Use a stable alias by default so a retired model version (e.g. the old
+# gemini-2.0-flash) never breaks the app. Override with GEMINI_MODEL if needed.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-flash-latest")
+
 app = FastAPI()
 
 # CORS Configuration
@@ -57,8 +61,8 @@ async def analyze_text(request: AnalyzeRequest):
         raise HTTPException(status_code=400, detail="No text provided")
 
     try:
-        model = genai.GenerativeModel('models/gemini-2.0-flash')
-        
+        model = genai.GenerativeModel(GEMINI_MODEL)
+
         instruction = ""
         if request.mode == "paragraph":
             instruction = "Split the text by PARAGRAPHS. Translate each paragraph as a whole unit."
@@ -102,7 +106,7 @@ async def summarize_text(request: SummarizeRequest):
         raise HTTPException(status_code=400, detail="No text provided")
 
     try:
-        model = genai.GenerativeModel('models/gemini-2.0-flash')
+        model = genai.GenerativeModel(GEMINI_MODEL)
         prompt = f"""
         You are a research assistant. Summarize the provided text into approximately {request.length} Traditional Chinese words. Capture the main arguments and conclusions.
         

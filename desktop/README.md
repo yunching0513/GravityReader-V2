@@ -39,14 +39,16 @@ SKIP_BACKEND=1 SKIP_FRONTEND=1 ./scripts/build-app.sh   # only repackage
 - The backend reads its `GOOGLE_API_KEY` from a `.env` shipped next to the
   executable inside the app bundle.
 
-## ⚠️ Google API key
+## Google API key & model
 
 The translation/summary features call **Google Gemini**. The build bundles
-`backend/.env`. The key currently in that file is **rejected by Google
-(`API_KEY_INVALID`)** — generate a fresh one at
-<https://aistudio.google.com/app/apikey>, put it in `backend/.env` as
-`GOOGLE_API_KEY=...`, and rebuild. The UI (PDF reading, highlighting, library)
-works without a key; only analyze/summarize need it.
+`backend/.env`, which must contain `GOOGLE_API_KEY=...` (get one at
+<https://aistudio.google.com/app/apikey>). The UI (PDF reading, highlighting,
+library) works without a key; only analyze/summarize need it.
+
+The backend uses `models/gemini-flash-latest` by default — a stable alias, so a
+retired model version won't break the app. Override with `GEMINI_MODEL` in
+`backend/.env` if you want a specific model (e.g. `models/gemini-2.5-flash`).
 
 ## Dev mode (no packaging)
 
