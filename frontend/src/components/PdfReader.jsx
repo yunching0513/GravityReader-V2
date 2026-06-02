@@ -4,8 +4,10 @@ import { ChevronLeft, ChevronRight, Minus, Plus, Upload } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
-// Critical Worker Fix
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+// Critical Worker Fix — use an explicit https scheme so it also resolves under
+// the file:// protocol when running inside the packaged Electron app (a
+// protocol-relative "//unpkg.com" URL would become "file://unpkg.com" there).
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
 const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange }) => {
     const [numPages, setNumPages] = useState(null);

@@ -1,0 +1,47 @@
+{
+  "name": "gravityreader-desktop",
+  "version": "2.0.0",
+  "description": "GravityReader · 重力閱讀 — bilingual close-reading desktop app",
+  "author": "Wu Yun-Ching",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.wuyunching.gravityreader",
+    "productName": "GravityReader",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html",
+      "renderer/**"
+    ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] },
+        { "target": "zip", "arch": ["arm64"] }
+      ],
+      "darkModeSupport": false
+    },
+    "dmg": {
+      "title": "GravityReader"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  }
+}

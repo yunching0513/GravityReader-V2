@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,7 +7,16 @@ from pydantic import BaseModel
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-# Load environment variables
+# Resolve the directory the app is running from. When packaged by PyInstaller
+# (sys.frozen), files live next to the executable; otherwise next to this file.
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Load environment variables — prefer a .env shipped next to the executable,
+# then fall back to the default search (project dir during development).
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 load_dotenv()
 
 # Configure Logging
@@ -110,3 +120,13 @@ async def summarize_text(request: SummarizeRequest):
 @app.get("/")
 def read_root():
     return {"message": "GravityReader V2 Backend is running"}
+
+
+if __name__ == "__main__":
+    # Entry point for the bundled (PyInstaller) backend. The Electron main
+    # process spawns this executable and waits for the port to respond.
+    import uvicorn
+
+    host = os.getenv("GR_HOST", "127.0.0.1")
+    port = int(os.getenv("GR_PORT", "8000"))
+    uvicorn.run(app, host=host, port=port, log_level="info")

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&family=EB+Garamond:ital@0;1&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F1EFE9; --stone: #BBB8AE; --silver: #A6A399;
+    --ash: #807C73; --ink: #1F1D19; --indigo: #C15F3C;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Noto Serif TC', serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; opacity: 0.3;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.30 0 0 0 0 0.30 0 0 0 0 0.29 0 0 0 0.10 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap { text-align: center; position: relative; z-index: 1; }
+  .glyph { font-size: 96px; font-weight: 700; color: var(--stone); line-height: 1; user-select: none; }
+  .mark { font-family: 'EB Garamond', serif; font-style: italic; font-size: 24px; font-weight: 600; margin-top: 22px; }
+  .mark b { color: var(--indigo); font-weight: 600; }
+  .zh { font-size: 13px; letter-spacing: 0.3em; color: var(--ash); margin-top: 12px; }
+  .bar { width: 180px; height: 1px; background: var(--stone); position: relative; overflow: hidden; margin: 28px auto 0; }
+  .bar::after {
+    content: ''; position: absolute; top: 0; left: -40%; height: 100%; width: 40%;
+    background: var(--indigo); animation: slide 1.4s ease-in-out infinite;
+  }
+  @keyframes slide { 0% { left: -40%; } 100% { left: 100%; } }
+  .status { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--silver); margin-top: 18px; }
+  .err .glyph { color: var(--indigo); }
+  .err .bar { display: none; }
+  .err .status { color: var(--indigo); text-transform: none; letter-spacing: 0.04em; font-size: 12px; line-height: 1.8; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <div class="wrap" id="wrap">
+    <div class="glyph" id="glyph">靜</div>
+    <div class="mark">Gravity<b>Reader</b></div>
+    <div class="zh">重力閱讀 · 雙語精讀</div>
+    <div class="bar" id="bar"></div>
+    <div class="status" id="status">正在啟動引擎 · warming up</div>
+  </div>
+  <script>
+    if (location.hash === '#error') {
+      document.getElementById('wrap').classList.add('err');
+      document.getElementById('glyph').textContent = '？';
+      document.getElementById('status').innerHTML =
+        '後端服務啟動逾時。<br>The backend did not start in time — please reopen the app.';
+    }
+  </script>
+</body>
+</html>
