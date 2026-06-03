@@ -11,7 +11,7 @@ import axios from 'axios';
 import { getAudio, putAudio } from './db';
 import { audioKey } from './tts';
 
-export function useAudioReader({ apiBase, voice, speed, onActive }) {
+export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
     const audioRef = useRef(null);
     if (!audioRef.current && typeof Audio !== 'undefined') {
         audioRef.current = new Audio();
@@ -35,6 +35,7 @@ export function useAudioReader({ apiBase, voice, speed, onActive }) {
     // Always-fresh copies of changing inputs for use inside async closures.
     const voiceRef = useRef(voice); voiceRef.current = voice;
     const speedRef = useRef(speed); speedRef.current = speed;
+    const engineRef = useRef(engine); engineRef.current = engine;
     const onActiveRef = useRef(onActive); onActiveRef.current = onActive;
 
     useEffect(() => {
@@ -43,12 +44,13 @@ export function useAudioReader({ apiBase, voice, speed, onActive }) {
 
     // Ensure a clip blob exists (cache-first), without creating an object URL.
     const ensureBlob = useCallback(async (text, fileId) => {
-        const key = audioKey(fileId, voiceRef.current, text);
+        const eng = engineRef.current || 'gemini';
+        const key = audioKey(fileId, eng, voiceRef.current, text);
         let blob = await getAudio(key).catch(() => null);
         if (!blob) {
             const res = await axios.post(
                 `${apiBase}/api/tts`,
-                { text, voice: voiceRef.current },
+                { text, voice: voiceRef.current, engine: eng },
                 { responseType: 'blob' }
             );
             blob = res.data;

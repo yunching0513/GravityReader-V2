@@ -60,8 +60,8 @@ export function hashText(str) {
     return h.toString(36);
 }
 
-// Cache key for a clip: same text + voice => same audio (speed is applied via
-// playbackRate at play time, so it is intentionally not part of the key).
-export function audioKey(fileId, voice, text) {
-    return `${fileId == null ? 'x' : fileId}|${voice}|${hashText(text)}`;
+// Cache key for a clip: same engine + voice + text => same audio (speed is
+// applied via playbackRate at play time, so it is intentionally not part of it).
+export function audioKey(fileId, engine, voice, text) {
+    return `${fileId == null ? 'x' : fileId}|${engine}|${voice}|${hashText(text)}`;
 }

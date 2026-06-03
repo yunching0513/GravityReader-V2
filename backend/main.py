@@ -236,6 +236,25 @@ def _gemini_tts(text: str, voice: str) -> bytes:
     return _pcm_to_wav(pcm, rate=rate)
 
 
+def _say_tts(text, voice):
+    """Synthesize one chunk with the macOS `say` engine, returning WAV bytes."""
+    tmp = tempfile.mkdtemp(prefix="gr_say_")
+    try:
+        wav_path = os.path.join(tmp, "s.wav")
+        txt_path = os.path.join(tmp, "s.txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        subprocess.run(
+            ["say", "-v", voice or "Samantha", "-o", wav_path,
+             "--file-format=WAVE", "--data-format=LEI16@22050", "-f", txt_path],
+            check=True, capture_output=True, timeout=120,
+        )
+        with open(wav_path, "rb") as f:
+            return f.read()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 @app.get("/api/tts/voices")
 def tts_voices():
     return {"gemini": GEMINI_VOICES, "say": _list_say_voices()}
@@ -248,11 +267,19 @@ def tts(req: TtsRequest):
     text = (req.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
-    if not GOOGLE_API_KEY:
-        raise HTTPException(status_code=503, detail="GOOGLE_API_KEY not configured")
+    engine = (req.engine or "gemini").lower()
     try:
-        wav = _gemini_tts(text, req.voice)
+        if engine == "say":
+            if not SAY_AVAILABLE:
+                raise HTTPException(status_code=503, detail="離線朗讀僅在 macOS 上可用。")
+            wav = _say_tts(text, req.voice or "Samantha")
+        else:
+            if not GOOGLE_API_KEY:
+                raise HTTPException(status_code=503, detail="GOOGLE_API_KEY not configured")
+            wav = _gemini_tts(text, req.voice)
         return Response(content=wav, media_type="audio/wav")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"TTS error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -301,16 +328,17 @@ def _say_chunk_to_wav(chunk, voice, wav_path, txt_path):
 
 
 def _gemini_chunk_to_wav(chunk, voice, wav_path):
-    # One retry with backoff — the preview TTS endpoint is rate-limited.
+    # The preview TTS endpoint is rate-limited; retry with exponential backoff
+    # so a long book rides through 429s instead of failing the whole job.
     last = None
-    for attempt in range(2):
+    for attempt in range(5):
         try:
             with open(wav_path, "wb") as f:
                 f.write(_gemini_tts(chunk, voice))
             return
         except Exception as e:
             last = e
-            time.sleep(2)
+            time.sleep(min(3 * (2 ** attempt), 30))
     raise last
 
 
@@ -334,6 +362,7 @@ def _generate_book(job_id, pages, voice, name, engine):
             wav_path = os.path.join(tmp, f"c{i}.wav")
             if engine == "gemini":
                 _gemini_chunk_to_wav(chunk, voice, wav_path)
+                time.sleep(0.4)  # gentle pacing to ease rate limits
             else:
                 _say_chunk_to_wav(chunk, voice, wav_path, os.path.join(tmp, f"c{i}.txt"))
             wavs.append(wav_path)

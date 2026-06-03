@@ -53,6 +53,7 @@ function App() {
     const [ttsVoices, setTtsVoices] = useState(DEFAULT_VOICES);
     const [ttsVoice, setTtsVoice] = useState('Kore');
     const [ttsSpeed, setTtsSpeed] = useState(1.0);
+    const [playEngine, setPlayEngine] = useState('gemini'); // live read-aloud engine
     const [ttsActive, setTtsActive] = useState(false); // a read session is live
     const [currentPage, setCurrentPage] = useState(1);
     const [requestedPage, setRequestedPage] = useState(null); // drives the viewer
@@ -87,8 +88,23 @@ function App() {
         apiBase: API_BASE_URL,
         voice: ttsVoice,
         speed: ttsSpeed,
+        engine: playEngine,
         onActive: handleActiveSentence,
     });
+
+    // Switch the live read-aloud engine (and reset to that engine's voice).
+    const selectPlayEngine = (engine) => {
+        reader.stop();
+        setPlayEngine(engine);
+        if (engine === 'gemini') {
+            setTtsVoice((ttsVoices[0] && ttsVoices[0].id) || 'Kore');
+        } else {
+            setTtsVoice(sayVoices.find(v => v.id === 'Samantha') ? 'Samantha' : ((sayVoices[0] && sayVoices[0].id) || 'Samantha'));
+        }
+    };
+    const playVoiceOptions = playEngine === 'gemini'
+        ? ttsVoices
+        : (sayVoices.length ? sayVoices : [{ id: 'Samantha', label: 'Samantha' }]);
 
     // Load the available voices once.
     useEffect(() => {
@@ -627,11 +643,25 @@ function App() {
                     {openSection === 'audio' && (
                         <div className="gr-side-body">
                             <label className="gr-audio-field">
-                                <span className="gr-audio-field-label">語音 · Voice</span>
+                                <span className="gr-audio-field-label">即時朗讀引擎 · Live</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button className={playEngine === 'gemini' ? 'is-active' : ''} onClick={() => selectPlayEngine('gemini')}>
+                                        Gemini 雲端
+                                    </button>
+                                    <button className={playEngine === 'say' ? 'is-active' : ''} onClick={() => selectPlayEngine('say')}>
+                                        Apple 離線
+                                    </button>
+                                </div>
+                            </label>
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">{playEngine === 'gemini' ? '語音 · Gemini' : '語音 · macOS'}</span>
                                 <select className="gr-input" value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)}>
-                                    {ttsVoices.map(v => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
+                                    {playVoiceOptions.map(v => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
                                 </select>
                             </label>
+                            <p className="gr-audio-hint">
+                                {playEngine === 'gemini' ? '高音質 · 需網路 · 依字數計費。' : '免費 · 離線 · 省錢。'}
+                            </p>
 
                             <button className="gr-side-btn" onClick={() => startReadingFrom(currentPageRef.current || 1)}>
                                 <span className="zh">從本頁開始朗讀</span>
@@ -746,9 +776,7 @@ function App() {
                         isLoading={reader.isLoading}
                         activeText={reader.activeText}
                         position={reader.position}
-                        voice={ttsVoice}
-                        voices={ttsVoices}
-                        onVoice={setTtsVoice}
+                        engineLabel={playEngine === 'gemini' ? 'Gemini' : 'Apple'}
                         speed={ttsSpeed}
                         onSpeed={setTtsSpeed}
                         onToggle={reader.toggle}

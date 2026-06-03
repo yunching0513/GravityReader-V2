@@ -6,7 +6,7 @@ const SPEEDS = [0.75, 1, 1.25, 1.5];
 // The docked read-aloud control bar (bottom of the reader pane).
 const AudioBar = ({
     isPlaying, isLoading, activeText, position,
-    voice, voices, onVoice,
+    engineLabel,
     speed, onSpeed,
     onToggle, onPrev, onNext, onStop,
 }) => {
@@ -24,7 +24,7 @@ const AudioBar = ({
                 <div className="gr-audio-now-text" title={activeText}>{activeText || '準備朗讀…'}</div>
                 <div className="gr-audio-meta">
                     <span className="gr-audio-count">{position.total ? `${position.index} / ${position.total}` : '—'}</span>
-                    <span className="gr-audio-reading">{isPlaying ? 'reading aloud' : 'paused'}</span>
+                    <span className="gr-audio-reading">{isPlaying ? `reading · ${engineLabel}` : 'paused'}</span>
                 </div>
             </div>
 
@@ -40,9 +40,6 @@ const AudioBar = ({
                         </button>
                     ))}
                 </div>
-                <select className="gr-audio-voice" value={voice} onChange={(e) => onVoice(e.target.value)} title="語音">
-                    {voices.map((v) => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
-                </select>
                 <button className="gr-audio-btn gr-audio-stop" onClick={onStop} title="停止"><X size={15} /></button>
             </div>
         </div>
