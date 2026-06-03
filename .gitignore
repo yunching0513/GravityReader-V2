@@ -16,3 +16,12 @@ coverage/
 # IDE
 .vscode/
 .idea/
+
+# Desktop / Electron build artifacts
+backend/build/
+backend/dist/
+backend/*.spec
+desktop/node_modules/
+desktop/renderer/
+desktop/backend/
+desktop/release/

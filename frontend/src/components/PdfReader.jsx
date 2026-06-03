@@ -1,17 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ChevronLeft, ChevronRight, Minus, Plus, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
-// Critical Worker Fix
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+// Critical Worker Fix — use an explicit https scheme so it also resolves under
+// the file:// protocol when running inside the packaged Electron app (a
+// protocol-relative "//unpkg.com" URL would become "file://unpkg.com" there).
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
-const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange }) => {
+const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
     const [scale, setScale] = useState(1.0);
+
+    const scrollRef = useRef(null);   // scroll/zoom container
+    const docWrapRef = useRef(null);  // wraps the rendered page (for live zoom preview)
+    const pendingScaleRef = useRef(1.0);
+    const commitTimerRef = useRef(null);
 
     // Handle external file loading (from My Library)
     React.useEffect(() => {
@@ -27,6 +34,14 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
             onPageChange(pageNumber);
         }
     }, [pageNumber, onPageChange]);
+
+    // Let the parent drive the page (used by read-aloud auto page-turn).
+    React.useEffect(() => {
+        if (requestedPage && requestedPage !== pageNumber) {
+            setPageNumber(requestedPage);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [requestedPage]);
 
     function onDocumentLoadSuccess(pdf) {
         setNumPages(pdf.numPages);
@@ -49,7 +64,14 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
 
     // Apply Highlight Logic
     const applyHighlight = () => {
-        if (!highlightedText) return;
+        // No active highlight — clear any leftover highlight (e.g. after stopping
+        // read-aloud or deselecting an entry) instead of leaving it stuck.
+        if (!highlightedText) {
+            document.querySelectorAll('.react-pdf__Page__textContent span').forEach(span => {
+                span.style.backgroundColor = '';
+            });
+            return;
+        }
 
         // Wait for text layer to render
         setTimeout(() => {
@@ -80,6 +102,8 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
             const normalizedHighlight = normalize(highlightedText);
 
             if (normalizedHighlight.length === 0) return;
+
+            let firstHit = null; // first highlighted span (for read-along scroll)
 
             // 3. Find all occurrences of the highlighted text
             let searchIndex = 0;
@@ -116,11 +140,17 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
                         if (item.end > startOriginalIndex && item.start < endOriginalIndex) {
                             item.element.style.backgroundColor = highlightColor || 'rgba(193, 95, 60, 0.22)';
                             item.element.style.transition = 'background-color 0.3s';
+                            if (!firstHit) firstHit = item.element;
                         }
                     });
                 }
 
                 searchIndex = foundIndex + 1;
+            }
+
+            // Read-along: keep the spoken sentence in view.
+            if (autoScroll && firstHit) {
+                firstHit.scrollIntoView({ block: 'center', behavior: 'smooth' });
             }
         }, 100); // Small delay to ensure DOM is ready
     };
@@ -130,15 +160,49 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
         applyHighlight();
     }, [highlightedText, pageNumber, scale, highlightColor]);
 
-    // Zoom Handler (Ctrl + Wheel)
-    const handleWheel = (e) => {
-        if (e.ctrlKey || e.metaKey) {
+    // Keep the gesture's running target in sync with discrete (button) changes.
+    useEffect(() => { pendingScaleRef.current = scale; }, [scale]);
+
+    // Zoom Handler (Ctrl/⌘ + Wheel).
+    //
+    // React's onWheel is registered as a *passive* listener, so calling
+    // preventDefault() there silently fails — the browser then performs a native
+    // zoom AND we fire a scale change on every wheel tick. On a heavy (book) page
+    // those rapid changes pile up overlapping pdf.js renders into the same canvas,
+    // which paints the page twice and produces the ghosted/doubled text.
+    //
+    // Fix: attach a non-passive listener so preventDefault works, preview the zoom
+    // instantly with a cheap CSS transform, and commit a SINGLE re-render once the
+    // gesture settles — so only one render ever touches the canvas.
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+
+        const onWheel = (e) => {
+            if (!(e.ctrlKey || e.metaKey)) return; // let normal scroll through
             e.preventDefault();
-            const delta = e.deltaY * -0.001;
-            const newScale = Math.min(Math.max(scale + delta, 0.5), 3.0);
-            setScale(newScale);
-        }
-    };
+
+            const delta = e.deltaY * -0.0015;
+            const target = Math.min(Math.max(pendingScaleRef.current * (1 + delta), 0.5), 3.0);
+            pendingScaleRef.current = target;
+
+            // Instant visual feedback: scale the already-rendered page relative to
+            // the committed render scale. No re-render happens during the gesture.
+            if (docWrapRef.current) {
+                docWrapRef.current.style.transformOrigin = 'top center';
+                docWrapRef.current.style.transform = `scale(${target / scale})`;
+            }
+
+            clearTimeout(commitTimerRef.current);
+            commitTimerRef.current = setTimeout(() => {
+                if (docWrapRef.current) docWrapRef.current.style.transform = '';
+                setScale(Number(pendingScaleRef.current.toFixed(2)));
+            }, 160);
+        };
+
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => el.removeEventListener('wheel', onWheel);
+    }, [scale]);
 
     return (
         <div className="gr-reader" style={{ border: 'none', height: '100%' }} onMouseUp={handleMouseUp}>
@@ -179,25 +243,35 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
                                 <Plus size={14} />
                             </button>
                         </div>
+
+                        <button
+                            className={`gr-btn gr-btn--icon gr-read-btn ${isReading ? 'is-active' : ''}`}
+                            onClick={() => onReadPage && onReadPage()}
+                            title={isReading ? '停止朗讀' : '從本頁開始朗讀'}
+                        >
+                            <Headphones size={15} />
+                        </button>
                     </div>
                 )}
             </div>
 
-            <div className="gr-canvas gr-scroll" onWheel={handleWheel}>
+            <div className="gr-canvas gr-scroll" ref={scrollRef}>
                 {file ? (
-                    <Document
-                        file={file}
-                        onLoadSuccess={onDocumentLoadSuccess}
-                        className="gr-doc"
-                    >
-                        <Page
-                            pageNumber={pageNumber}
-                            scale={scale}
-                            renderTextLayer={true}
-                            renderAnnotationLayer={true}
-                            onRenderSuccess={applyHighlight}
-                        />
-                    </Document>
+                    <div ref={docWrapRef} className="gr-doc-wrap">
+                        <Document
+                            file={file}
+                            onLoadSuccess={onDocumentLoadSuccess}
+                            className="gr-doc"
+                        >
+                            <Page
+                                pageNumber={pageNumber}
+                                scale={scale}
+                                renderTextLayer={true}
+                                renderAnnotationLayer={true}
+                                onRenderSuccess={applyHighlight}
+                            />
+                        </Document>
+                    </div>
                 ) : (
                     <div className="gr-empty">
                         <div className="glyph">空</div>
