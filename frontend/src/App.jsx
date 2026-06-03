@@ -105,6 +105,9 @@ function App() {
     const playVoiceOptions = playEngine === 'gemini'
         ? ttsVoices
         : (sayVoices.length ? sayVoices : [{ id: 'Samantha', label: 'Samantha' }]);
+    // Offline `say`/`afconvert` are macOS-only; the backend returns no `say`
+    // voices on other platforms (e.g. Windows), so we hide offline features.
+    const offlineAvailable = sayVoices.length > 0;
 
     // Load the available voices once.
     useEffect(() => {
@@ -642,17 +645,19 @@ function App() {
 
                     {openSection === 'audio' && (
                         <div className="gr-side-body">
-                            <label className="gr-audio-field">
-                                <span className="gr-audio-field-label">即時朗讀引擎 · Live</span>
-                                <div className="gr-seg gr-seg--full">
-                                    <button className={playEngine === 'gemini' ? 'is-active' : ''} onClick={() => selectPlayEngine('gemini')}>
-                                        Gemini 雲端
-                                    </button>
-                                    <button className={playEngine === 'say' ? 'is-active' : ''} onClick={() => selectPlayEngine('say')}>
-                                        Apple 離線
-                                    </button>
-                                </div>
-                            </label>
+                            {offlineAvailable && (
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">即時朗讀引擎 · Live</span>
+                                    <div className="gr-seg gr-seg--full">
+                                        <button className={playEngine === 'gemini' ? 'is-active' : ''} onClick={() => selectPlayEngine('gemini')}>
+                                            Gemini 雲端
+                                        </button>
+                                        <button className={playEngine === 'say' ? 'is-active' : ''} onClick={() => selectPlayEngine('say')}>
+                                            Apple 離線
+                                        </button>
+                                    </div>
+                                </label>
+                            )}
                             <label className="gr-audio-field">
                                 <span className="gr-audio-field-label">{playEngine === 'gemini' ? '語音 · Gemini' : '語音 · macOS'}</span>
                                 <select className="gr-input" value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)}>
@@ -673,6 +678,7 @@ function App() {
                             </button>
                             <p className="gr-audio-hint">段落朗讀:在「精讀」每張卡片點 <Volume2 size={11} style={{ verticalAlign: '-1px' }} />。</p>
 
+                            {offlineAvailable && (
                             <div className="gr-book">
                                 <div className="gr-book-head">生成有聲書 · Audiobook</div>
 
@@ -750,6 +756,7 @@ function App() {
                                     </div>
                                 )}
                             </div>
+                            )}
                         </div>
                     )}
                 </section>

@@ -24,7 +24,8 @@ let mainWindow = null;
 // the app's Resources; during `npm start` it sits next to this file.
 function backendExePath() {
     const base = app.isPackaged ? process.resourcesPath : __dirname;
-    return path.join(base, 'backend', 'GravityReaderBackend', 'GravityReaderBackend');
+    const exe = process.platform === 'win32' ? 'GravityReaderBackend.exe' : 'GravityReaderBackend';
+    return path.join(base, 'backend', 'GravityReaderBackend', exe);
 }
 
 function rendererIndex() {

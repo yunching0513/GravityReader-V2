@@ -1,0 +1,83 @@
+name: Build Windows
+
+# Builds the Windows installer (.exe). PyInstaller can't cross-compile, so the
+# backend must be built on a real Windows runner — that's what this does.
+#
+# Optional: set a repo secret GOOGLE_API_KEY to bake the key into the build so
+# the app's Gemini features work out of the box. Without it the app still
+# builds; the user just supplies a key later. (Artifacts are only downloadable
+# by repo collaborators — don't attach a key-baked build to a public Release.)
+#
+# Note: offline read-aloud / audiobook use macOS-only `say`/`afconvert`, so the
+# Windows build is Gemini-only for audio (the UI hides offline options).
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Copy renderer into Electron app
+        shell: pwsh
+        run: |
+          if (Test-Path desktop/renderer) { Remove-Item -Recurse -Force desktop/renderer }
+          Copy-Item -Recurse frontend/dist desktop/renderer
+
+      - name: Build backend (PyInstaller)
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          pyinstaller --noconfirm --clean --name GravityReaderBackend `
+            --collect-all google.generativeai `
+            --collect-all google.ai.generativelanguage `
+            --collect-all google.api_core `
+            --collect-all google.auth `
+            --collect-all grpc `
+            --collect-all grpc_status `
+            --collect-all uvicorn `
+            --collect-submodules google `
+            main.py
+
+      - name: Bundle backend + .env
+        shell: pwsh
+        env:
+          GR_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          if ($env:GR_KEY) { "GOOGLE_API_KEY=$($env:GR_KEY)" | Out-File -Encoding ascii backend/dist/GravityReaderBackend/.env }
+          if (Test-Path desktop/backend) { Remove-Item -Recurse -Force desktop/backend }
+          New-Item -ItemType Directory -Force desktop/backend | Out-Null
+          Copy-Item -Recurse backend/dist/GravityReaderBackend desktop/backend/GravityReaderBackend
+
+      - name: Package (electron-builder --win)
+        working-directory: desktop
+        run: |
+          npm ci
+          npx electron-builder --win --publish never
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: GravityReader-Windows-x64
+          path: desktop/release/*.exe
+          if-no-files-found: error
