@@ -935,6 +935,147 @@ body::before {
   border-top: 1px dotted var(--silver);
 }
 
+/* ════════ READ-ALOUD ════════ */
+/* toolbar read button active state */
+.gr-read-btn.is-active { background: var(--indigo); border-color: var(--indigo); color: var(--paper); }
+
+/* per-entry tools (read / capture) */
+.gr-entry-tools {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.gr-entry:hover .gr-entry-tools,
+.gr-entry.is-active .gr-entry-tools { opacity: 1; }
+.gr-entry-tool {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper);
+  border: 1px solid var(--silver);
+  color: var(--ash);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.gr-entry-tool:hover { border-color: var(--indigo); color: var(--indigo); }
+
+/* docked audio player bar */
+.gr-audiobar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 11px 20px;
+  background: var(--paper-2);
+  border-top: 1px solid var(--stone);
+  box-shadow: 0 -6px 26px rgba(31, 29, 25, 0.10);
+  z-index: 15;
+}
+.gr-audio-transport { display: flex; align-items: center; gap: 8px; }
+.gr-audio-btn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--silver);
+  color: var(--graphite);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.gr-audio-btn:hover { border-color: var(--indigo); color: var(--indigo); }
+.gr-audio-btn--main {
+  width: 40px;
+  height: 40px;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.gr-audio-btn--main:hover { background: var(--indigo); border-color: var(--indigo); color: var(--paper); }
+.gr-audio-stop { border-color: var(--stone); }
+
+.gr-audio-now { flex: 1; min-width: 0; }
+.gr-audio-now-text {
+  font-family: var(--en-serif);
+  font-size: 15px;
+  color: var(--ink);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gr-audio-meta { display: flex; gap: 14px; margin-top: 2px; }
+.gr-audio-count { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--indigo); }
+.gr-audio-reading {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+
+.gr-audio-controls { display: flex; align-items: center; gap: 12px; }
+.gr-audio-speeds { display: flex; border: 1px solid var(--stone); }
+.gr-audio-speed {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--stone);
+  color: var(--ash);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.gr-audio-speed:last-child { border-right: none; }
+.gr-audio-speed:hover { color: var(--ink); }
+.gr-audio-speed.is-active { background: var(--ink); color: var(--paper); }
+.gr-audio-voice {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  padding: 6px 8px;
+  background: var(--paper);
+  border: 1px solid var(--silver);
+  color: var(--graphite);
+  cursor: pointer;
+  max-width: 132px;
+}
+.gr-audio-voice:focus { outline: none; border-color: var(--indigo); }
+
+.gr-spin { animation: gr-rotate 0.9s linear infinite; }
+@keyframes gr-rotate { to { transform: rotate(360deg); } }
+
+/* sidebar audio fields */
+.gr-audio-field { display: block; margin-bottom: 14px; }
+.gr-audio-field-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 6px;
+}
+.gr-audio-field .gr-input { width: 100%; font-family: var(--zh-sans); }
+.gr-audio-hint {
+  font-family: var(--zh-sans);
+  font-size: 11px;
+  color: var(--ash);
+  line-height: 1.7;
+  margin-top: 10px;
+  letter-spacing: 0.03em;
+}
+
 /* react-pdf text selection tint */
 .react-pdf__Page__textContent ::selection { background: var(--indigo-m); }
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ChevronLeft, ChevronRight, Minus, Plus, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 
@@ -9,7 +9,7 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 // protocol-relative "//unpkg.com" URL would become "file://unpkg.com" there).
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
-const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange }) => {
+const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -35,6 +35,14 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
         }
     }, [pageNumber, onPageChange]);
 
+    // Let the parent drive the page (used by read-aloud auto page-turn).
+    React.useEffect(() => {
+        if (requestedPage && requestedPage !== pageNumber) {
+            setPageNumber(requestedPage);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [requestedPage]);
+
     function onDocumentLoadSuccess(pdf) {
         setNumPages(pdf.numPages);
         if (onDocumentLoad) {
@@ -56,7 +64,14 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
 
     // Apply Highlight Logic
     const applyHighlight = () => {
-        if (!highlightedText) return;
+        // No active highlight — clear any leftover highlight (e.g. after stopping
+        // read-aloud or deselecting an entry) instead of leaving it stuck.
+        if (!highlightedText) {
+            document.querySelectorAll('.react-pdf__Page__textContent span').forEach(span => {
+                span.style.backgroundColor = '';
+            });
+            return;
+        }
 
         // Wait for text layer to render
         setTimeout(() => {
@@ -87,6 +102,8 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
             const normalizedHighlight = normalize(highlightedText);
 
             if (normalizedHighlight.length === 0) return;
+
+            let firstHit = null; // first highlighted span (for read-along scroll)
 
             // 3. Find all occurrences of the highlighted text
             let searchIndex = 0;
@@ -123,11 +140,17 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
                         if (item.end > startOriginalIndex && item.start < endOriginalIndex) {
                             item.element.style.backgroundColor = highlightColor || 'rgba(193, 95, 60, 0.22)';
                             item.element.style.transition = 'background-color 0.3s';
+                            if (!firstHit) firstHit = item.element;
                         }
                     });
                 }
 
                 searchIndex = foundIndex + 1;
+            }
+
+            // Read-along: keep the spoken sentence in view.
+            if (autoScroll && firstHit) {
+                firstHit.scrollIntoView({ block: 'center', behavior: 'smooth' });
             }
         }, 100); // Small delay to ensure DOM is ready
     };
@@ -220,6 +243,14 @@ const PdfReader = ({ onTextSelect, onDocumentLoad, highlightedText, highlightCol
                                 <Plus size={14} />
                             </button>
                         </div>
+
+                        <button
+                            className={`gr-btn gr-btn--icon gr-read-btn ${isReading ? 'is-active' : ''}`}
+                            onClick={() => onReadPage && onReadPage()}
+                            title={isReading ? '停止朗讀' : '從本頁開始朗讀'}
+                        >
+                            <Headphones size={15} />
+                        </button>
                     </div>
                 )}
             </div>

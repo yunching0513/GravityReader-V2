@@ -1,8 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { AlertCircle, Menu, X, Upload, ChevronDown, Plus, Check, Trash2 } from 'lucide-react';
+import { AlertCircle, Menu, X, Upload, ChevronDown, Plus, Check, Trash2, Volume2, Headphones } from 'lucide-react';
 import PdfReader from './components/PdfReader';
+import AudioBar from './components/AudioBar';
 import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote } from './utils/db';
+import { useAudioReader } from './utils/audioReader';
+import { splitSentences } from './utils/tts';
+
+const DEFAULT_VOICES = [
+    { id: 'Kore', label: 'Kore · 沉穩女聲' },
+    { id: 'Puck', label: 'Puck · 活潑男聲' },
+];
 
 function App() {
     const [inputText, setInputText] = useState('');
@@ -41,8 +49,94 @@ function App() {
     const [noteDraft, setNoteDraft] = useState('');
     const [justCaptured, setJustCaptured] = useState(null);
 
+    // Read-aloud (TTS) State
+    const [ttsVoices, setTtsVoices] = useState(DEFAULT_VOICES);
+    const [ttsVoice, setTtsVoice] = useState('Kore');
+    const [ttsSpeed, setTtsSpeed] = useState(1.0);
+    const [ttsActive, setTtsActive] = useState(false); // a read session is live
+    const [currentPage, setCurrentPage] = useState(1);
+    const [requestedPage, setRequestedPage] = useState(null); // drives the viewer
+    const currentPageRef = useRef(1);
+    const ttsPageRef = useRef(1);     // page currently being read (for auto-advance)
+    const pdfDocumentRef = useRef(null);
+
     // API Configuration
     const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+    // ── Read-aloud wiring ─────────────────────────────────────────────
+    // Called by the audio reader as each sentence starts (or null when it ends):
+    // highlight the spoken sentence on the PDF and keep it scrolled into view.
+    const handleActiveSentence = (text) => {
+        if (text) {
+            setTtsActive(true);
+            setHighlightedText(text);
+        } else {
+            setTtsActive(false);
+            setHighlightedText('');
+        }
+    };
+
+    const reader = useAudioReader({
+        apiBase: API_BASE_URL,
+        voice: ttsVoice,
+        speed: ttsSpeed,
+        onActive: handleActiveSentence,
+    });
+
+    // Load the available voices once.
+    useEffect(() => {
+        axios.get(`${API_BASE_URL}/api/tts/voices`)
+            .then(res => {
+                const v = res.data && res.data.gemini;
+                if (v && v.length) setTtsVoices(v);
+            })
+            .catch(() => {});
+    }, []);
+
+    const extractPageText = async (n) => {
+        const doc = pdfDocumentRef.current;
+        if (!doc) return '';
+        const page = await doc.getPage(n);
+        const tc = await page.getTextContent();
+        return tc.items.map(it => it.str).join(' ');
+    };
+
+    // Pull the next page's sentences when the current page finishes — gives
+    // continuous "read on" playback (and skips blank pages).
+    const readNextPage = async () => {
+        const doc = pdfDocumentRef.current;
+        const np = ttsPageRef.current + 1;
+        if (!doc || np > doc.numPages) return null;
+        ttsPageRef.current = np;
+        setRequestedPage(np);
+        const segs = splitSentences(await extractPageText(np));
+        if (!segs.length) return readNextPage();
+        return { segments: segs };
+    };
+
+    const startReadingFrom = async (pageNo) => {
+        if (!pdfDocumentRef.current) { alert('請先載入 PDF 文件。'); return; }
+        ttsPageRef.current = pageNo;
+        setRequestedPage(pageNo);
+        const segs = splitSentences(await extractPageText(pageNo));
+        if (segs.length) {
+            reader.start({ segments: segs, fileId: currentFileId, getNext: readNextPage });
+        } else {
+            const next = await readNextPage();
+            if (next) reader.start({ segments: next.segments, fileId: currentFileId, getNext: readNextPage });
+            else alert('這份文件沒有可朗讀的文字。');
+        }
+    };
+
+    const handleReadPage = () => {
+        if (ttsActive) { reader.stop(); return; }
+        startReadingFrom(currentPageRef.current || 1);
+    };
+
+    const handleReadEntry = (en) => {
+        if (!en) return;
+        reader.start({ segments: splitSentences(en), fileId: currentFileId, getNext: null });
+    };
 
     // Load Library on Mount
     useEffect(() => {
@@ -145,12 +239,15 @@ function App() {
     };
 
     const loadFileFromLibrary = (fileData) => {
+        reader.stop();
         setExternalFile(fileData.data);
         setCurrentFileId(fileData.id);
         setInitialPage(fileData.lastPage || 1);
     };
 
     const handlePageChange = async (page) => {
+        setCurrentPage(page);
+        currentPageRef.current = page;
         if (currentFileId) {
             try {
                 await updateFilePage(currentFileId, page);
@@ -236,6 +333,7 @@ function App() {
 
     const handleDocumentLoad = (pdf) => {
         setPdfDocument(pdf);
+        pdfDocumentRef.current = pdf;
     };
 
     const extractPdfText = async () => {
@@ -443,6 +541,39 @@ function App() {
                         </div>
                     )}
                 </section>
+
+                {/* 4. Read Aloud */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('audio')}>
+                        <span className="grp">
+                            <span className="num">04</span>
+                            <span className="zh">聲音生成</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'audio' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">Read Aloud · 英文朗讀</div>
+
+                    {openSection === 'audio' && (
+                        <div className="gr-side-body">
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">語音 · Voice</span>
+                                <select className="gr-input" value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)}>
+                                    {ttsVoices.map(v => <option key={v.id} value={v.id}>{v.label || v.id}</option>)}
+                                </select>
+                            </label>
+
+                            <button className="gr-side-btn" onClick={() => startReadingFrom(currentPageRef.current || 1)}>
+                                <span className="zh">從本頁開始朗讀</span>
+                                <span className="en">Read from this page</span>
+                            </button>
+                            <button className="gr-side-btn" onClick={() => startReadingFrom(1)}>
+                                <span className="zh">從頭朗讀整本</span>
+                                <span className="en">Read the whole book</span>
+                            </button>
+                            <p className="gr-audio-hint">段落朗讀:在「精讀」每張卡片點 <Volume2 size={11} style={{ verticalAlign: '-1px' }} />。</p>
+                        </div>
+                    )}
+                </section>
             </aside>
 
             {/* Left Panel — PDF Reader */}
@@ -455,7 +586,28 @@ function App() {
                     externalFile={externalFile}
                     initialPage={initialPage}
                     onPageChange={handlePageChange}
+                    requestedPage={requestedPage}
+                    onReadPage={handleReadPage}
+                    autoScroll={ttsActive}
+                    isReading={ttsActive}
                 />
+                {ttsActive && (
+                    <AudioBar
+                        isPlaying={reader.isPlaying}
+                        isLoading={reader.isLoading}
+                        activeText={reader.activeText}
+                        position={reader.position}
+                        voice={ttsVoice}
+                        voices={ttsVoices}
+                        onVoice={setTtsVoice}
+                        speed={ttsSpeed}
+                        onSpeed={setTtsSpeed}
+                        onToggle={reader.toggle}
+                        onPrev={reader.prev}
+                        onNext={reader.next}
+                        onStop={reader.stop}
+                    />
+                )}
             </div>
 
             {/* Resizer */}
@@ -583,13 +735,22 @@ function App() {
                                                 onClick={() => handleAnalysisItemClick(item.en)}
                                             >
                                                 <span className="gr-entry-n">{String(index + 1).padStart(2, '0')}</span>
-                                                <button
-                                                    className="gr-entry-capture"
-                                                    onClick={(e) => { e.stopPropagation(); handleCaptureEntry(item.en, item.zh); }}
-                                                    title="擷取為筆記"
-                                                >
-                                                    {justCaptured === item.en ? <Check size={14} /> : <Plus size={14} />}
-                                                </button>
+                                                <div className="gr-entry-tools">
+                                                    <button
+                                                        className="gr-entry-tool"
+                                                        onClick={(e) => { e.stopPropagation(); handleReadEntry(item.en); }}
+                                                        title="朗讀這段"
+                                                    >
+                                                        <Volume2 size={14} />
+                                                    </button>
+                                                    <button
+                                                        className="gr-entry-tool"
+                                                        onClick={(e) => { e.stopPropagation(); handleCaptureEntry(item.en, item.zh); }}
+                                                        title="擷取為筆記"
+                                                    >
+                                                        {justCaptured === item.en ? <Check size={14} /> : <Plus size={14} />}
+                                                    </button>
+                                                </div>
                                                 <p className="gr-entry-en">{item.en}</p>
                                                 <div className="gr-entry-rule" />
                                                 <p className="gr-entry-zh">{item.zh}</p>

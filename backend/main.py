@@ -1,7 +1,12 @@
 import os
 import sys
+import io
+import wave
+import json
+import base64
 import logging
-from fastapi import FastAPI, HTTPException
+import urllib.request
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
@@ -33,6 +38,19 @@ else:
 # Use a stable alias by default so a retired model version (e.g. the old
 # gemini-2.0-flash) never breaks the app. Override with GEMINI_MODEL if needed.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-flash-latest")
+
+# Text-to-speech (Phase 1: Gemini cloud TTS for paragraph/page read-aloud).
+GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+
+# Curated English prebuilt voices (Gemini exposes ~30; these read English well).
+GEMINI_VOICES = [
+    {"id": "Kore", "label": "Kore · 沉穩女聲"},
+    {"id": "Aoede", "label": "Aoede · 輕快女聲"},
+    {"id": "Leda", "label": "Leda · 明亮女聲"},
+    {"id": "Puck", "label": "Puck · 活潑男聲"},
+    {"id": "Charon", "label": "Charon · 低沉男聲"},
+    {"id": "Orus", "label": "Orus · 穩重男聲"},
+]
 
 app = FastAPI()
 
@@ -124,6 +142,83 @@ async def summarize_text(request: SummarizeRequest):
 @app.get("/")
 def read_root():
     return {"message": "GravityReader V2 Backend is running"}
+
+
+# ── Text-to-Speech ────────────────────────────────────────────────────
+
+class TtsRequest(BaseModel):
+    text: str
+    voice: str = "Kore"
+    engine: str = "gemini"  # Phase 1: gemini
+
+
+def _pcm_to_wav(pcm: bytes, rate: int = 24000, channels: int = 1, width: int = 2) -> bytes:
+    """Wrap raw little-endian PCM (what Gemini returns) into a playable WAV."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(width)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+def _gemini_tts(text: str, voice: str) -> bytes:
+    """Synthesize one chunk of text with Gemini TTS, returning WAV bytes."""
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_TTS_MODEL}:generateContent?key={GOOGLE_API_KEY}"
+    )
+    body = {
+        "contents": [{"parts": [{"text": text}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice or "Kore"}}
+            },
+        },
+    }
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+
+    part = data["candidates"][0]["content"]["parts"][0]
+    inline = part.get("inlineData") or part.get("inline_data")
+    pcm = base64.b64decode(inline["data"])
+
+    rate = 24000
+    mime = inline.get("mimeType") or inline.get("mime_type") or ""
+    if "rate=" in mime:
+        try:
+            rate = int(mime.split("rate=")[1].split(";")[0])
+        except ValueError:
+            pass
+    return _pcm_to_wav(pcm, rate=rate)
+
+
+@app.get("/api/tts/voices")
+def tts_voices():
+    return {"gemini": GEMINI_VOICES}
+
+
+# Defined as a sync `def` so FastAPI runs it in a threadpool — the urllib call
+# is blocking, and this keeps the event loop free for concurrent prefetches.
+@app.post("/api/tts")
+def tts(req: TtsRequest):
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided")
+    if not GOOGLE_API_KEY:
+        raise HTTPException(status_code=503, detail="GOOGLE_API_KEY not configured")
+    try:
+        wav = _gemini_tts(text, req.voice)
+        return Response(content=wav, media_type="audio/wav")
+    except Exception as e:
+        logger.error(f"TTS error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
