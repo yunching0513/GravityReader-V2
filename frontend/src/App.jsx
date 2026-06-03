@@ -60,8 +60,9 @@ function App() {
     const ttsPageRef = useRef(1);     // page currently being read (for auto-advance)
     const pdfDocumentRef = useRef(null);
 
-    // Whole-book audiobook (offline `say`) State
+    // Whole-book audiobook State (engine: 'say' offline | 'gemini' cloud)
     const [sayVoices, setSayVoices] = useState([]);
+    const [bookEngine, setBookEngine] = useState('say');
     const [bookVoice, setBookVoice] = useState('Samantha');
     const [bookJob, setBookJob] = useState(null); // {status, done, total, path, bytes, error}
     const bookTimerRef = useRef(null);
@@ -149,8 +150,21 @@ function App() {
         reader.start({ segments: splitSentences(en), fileId: currentFileId, getNext: null });
     };
 
-    // ── Whole-book audiobook (offline) ────────────────────────────────
+    // ── Whole-book audiobook ──────────────────────────────────────────
     const bookBusy = bookJob && ['extracting', 'running', 'combining'].includes(bookJob.status);
+    const bookVoiceOptions = bookEngine === 'gemini'
+        ? ttsVoices
+        : (sayVoices.length ? sayVoices : [{ id: 'Samantha', label: 'Samantha' }]);
+
+    const selectBookEngine = (engine) => {
+        if (bookBusy) return;
+        setBookEngine(engine);
+        if (engine === 'gemini') {
+            setBookVoice((ttsVoices[0] && ttsVoices[0].id) || 'Kore');
+        } else {
+            setBookVoice(sayVoices.find(v => v.id === 'Samantha') ? 'Samantha' : ((sayVoices[0] && sayVoices[0].id) || 'Samantha'));
+        }
+    };
 
     const handleGenerateBook = async () => {
         const doc = pdfDocumentRef.current;
@@ -164,7 +178,7 @@ function App() {
                 pages.push(await extractPageText(i));
             }
             const name = (currentFileName || 'audiobook').replace(/\.pdf$/i, '');
-            const { data } = await axios.post(`${API_BASE_URL}/api/tts/book`, { pages, voice: bookVoice, name });
+            const { data } = await axios.post(`${API_BASE_URL}/api/tts/book`, { pages, voice: bookVoice, name, engine: bookEngine });
             const jobId = data.jobId;
             setBookJob({ status: 'running', done: 0, total: 0 });
 
@@ -630,18 +644,46 @@ function App() {
                             <p className="gr-audio-hint">段落朗讀:在「精讀」每張卡片點 <Volume2 size={11} style={{ verticalAlign: '-1px' }} />。</p>
 
                             <div className="gr-book">
-                                <div className="gr-book-head">生成有聲書 · Audiobook <span>離線</span></div>
+                                <div className="gr-book-head">生成有聲書 · Audiobook</div>
+
                                 <label className="gr-audio-field">
-                                    <span className="gr-audio-field-label">有聲書語音 · macOS</span>
+                                    <span className="gr-audio-field-label">引擎 · Engine</span>
+                                    <div className="gr-seg gr-seg--full">
+                                        <button
+                                            className={bookEngine === 'say' ? 'is-active' : ''}
+                                            onClick={() => selectBookEngine('say')}
+                                            disabled={bookBusy}
+                                        >
+                                            Apple 離線
+                                        </button>
+                                        <button
+                                            className={bookEngine === 'gemini' ? 'is-active' : ''}
+                                            onClick={() => selectBookEngine('gemini')}
+                                            disabled={bookBusy}
+                                        >
+                                            Gemini 雲端
+                                        </button>
+                                    </div>
+                                </label>
+
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">{bookEngine === 'gemini' ? '語音 · Gemini' : '語音 · macOS'}</span>
                                     <select className="gr-input" value={bookVoice} onChange={(e) => setBookVoice(e.target.value)}>
-                                        {(sayVoices.length ? sayVoices : [{ id: 'Samantha', label: 'Samantha' }]).map(v => (
+                                        {bookVoiceOptions.map(v => (
                                             <option key={v.id} value={v.id}>{v.label || v.id}</option>
                                         ))}
                                     </select>
                                 </label>
+
+                                <p className="gr-audio-hint">
+                                    {bookEngine === 'gemini'
+                                        ? '高音質 · 需網路 · 依字數計費,整本較慢且受速率限制。'
+                                        : '免費 · 離線 · 生成快速。'}
+                                </p>
+
                                 <button className="gr-side-btn" onClick={handleGenerateBook} disabled={bookBusy}>
                                     <span className="zh">{bookBusy ? '生成中…' : '生成整本有聲書'}</span>
-                                    <span className="en">Whole book · .m4a · offline</span>
+                                    <span className="en">Whole book · .m4a · {bookEngine === 'gemini' ? 'Gemini' : 'offline'}</span>
                                 </button>
 
                                 {bookJob && (

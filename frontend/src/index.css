@@ -582,6 +582,9 @@ body::before {
 .gr-seg button:last-child { border-right: none; }
 .gr-seg button:hover { color: var(--ink); }
 .gr-seg button.is-active { background: var(--ink); color: var(--paper); font-weight: 500; }
+.gr-seg button:disabled { cursor: not-allowed; opacity: 0.5; }
+.gr-seg--full { display: flex; width: 100%; }
+.gr-seg--full button { flex: 1; text-align: center; }
 
 /* body scroll region */
 .gr-analysis-body {

@@ -1,6 +1,7 @@
 import os
 import sys
 import io
+import time
 import wave
 import json
 import base64
@@ -263,6 +264,7 @@ class BookRequest(BaseModel):
     pages: List[str] = []
     voice: str = "Samantha"
     name: str = "audiobook"
+    engine: str = "say"  # "say" (offline) | "gemini" (cloud)
 
 
 def _chunk_pages(pages, max_chars=3000):
@@ -288,11 +290,37 @@ def _safe_name(name):
     return (base or "audiobook")[:80]
 
 
-def _generate_book(job_id, pages, voice, name):
+def _say_chunk_to_wav(chunk, voice, wav_path, txt_path):
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(chunk)
+    subprocess.run(
+        ["say", "-v", voice, "-o", wav_path,
+         "--file-format=WAVE", "--data-format=LEI16@22050", "-f", txt_path],
+        check=True, capture_output=True, timeout=900,
+    )
+
+
+def _gemini_chunk_to_wav(chunk, voice, wav_path):
+    # One retry with backoff — the preview TTS endpoint is rate-limited.
+    last = None
+    for attempt in range(2):
+        try:
+            with open(wav_path, "wb") as f:
+                f.write(_gemini_tts(chunk, voice))
+            return
+        except Exception as e:
+            last = e
+            time.sleep(2)
+    raise last
+
+
+def _generate_book(job_id, pages, voice, name, engine):
     job = JOBS[job_id]
     tmp = tempfile.mkdtemp(prefix="gr_book_")
     try:
-        chunks = _chunk_pages(pages)
+        # Gemini caps audio length per call, so chunk it smaller than `say`.
+        max_chars = 1500 if engine == "gemini" else 3000
+        chunks = _chunk_pages(pages, max_chars=max_chars)
         job["total"] = len(chunks)
         if not chunks:
             job.update(status="error", error="這份文件沒有可朗讀的文字。")
@@ -303,15 +331,11 @@ def _generate_book(job_id, pages, voice, name):
             if job.get("cancel"):
                 job.update(status="error", error="已取消")
                 return
-            txt_path = os.path.join(tmp, f"c{i}.txt")
             wav_path = os.path.join(tmp, f"c{i}.wav")
-            with open(txt_path, "w", encoding="utf-8") as f:
-                f.write(chunk)
-            subprocess.run(
-                ["say", "-v", voice, "-o", wav_path,
-                 "--file-format=WAVE", "--data-format=LEI16@22050", "-f", txt_path],
-                check=True, capture_output=True, timeout=900,
-            )
+            if engine == "gemini":
+                _gemini_chunk_to_wav(chunk, voice, wav_path)
+            else:
+                _say_chunk_to_wav(chunk, voice, wav_path, os.path.join(tmp, f"c{i}.txt"))
             wavs.append(wav_path)
             job["done"] = i + 1
 
@@ -343,14 +367,22 @@ def _generate_book(job_id, pages, voice, name):
 
 @app.post("/api/tts/book")
 def tts_book(req: BookRequest):
+    engine = (req.engine or "say").lower()
+    if engine not in ("say", "gemini"):
+        engine = "say"
     if not SAY_AVAILABLE:
-        raise HTTPException(status_code=503, detail="離線有聲書生成僅在 macOS 上可用。")
+        # afconvert (used to write the .m4a) is macOS-only regardless of engine.
+        raise HTTPException(status_code=503, detail="有聲書生成僅在 macOS 上可用。")
+    if engine == "gemini" and not GOOGLE_API_KEY:
+        raise HTTPException(status_code=503, detail="Gemini 朗讀需要 GOOGLE_API_KEY。")
+
+    default_voice = "Kore" if engine == "gemini" else "Samantha"
     _job_counter[0] += 1
     job_id = f"book{_job_counter[0]}"
     JOBS[job_id] = {"status": "running", "done": 0, "total": 0, "path": None, "error": None, "bytes": 0}
     threading.Thread(
         target=_generate_book,
-        args=(job_id, req.pages, req.voice or "Samantha", req.name),
+        args=(job_id, req.pages, req.voice or default_voice, req.name, engine),
         daemon=True,
     ).start()
     return {"jobId": job_id}
