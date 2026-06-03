@@ -60,6 +60,12 @@ function App() {
     const ttsPageRef = useRef(1);     // page currently being read (for auto-advance)
     const pdfDocumentRef = useRef(null);
 
+    // Whole-book audiobook (offline `say`) State
+    const [sayVoices, setSayVoices] = useState([]);
+    const [bookVoice, setBookVoice] = useState('Samantha');
+    const [bookJob, setBookJob] = useState(null); // {status, done, total, path, bytes, error}
+    const bookTimerRef = useRef(null);
+
     // API Configuration
     const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -87,8 +93,13 @@ function App() {
     useEffect(() => {
         axios.get(`${API_BASE_URL}/api/tts/voices`)
             .then(res => {
-                const v = res.data && res.data.gemini;
-                if (v && v.length) setTtsVoices(v);
+                const g = res.data && res.data.gemini;
+                if (g && g.length) setTtsVoices(g);
+                const s = res.data && res.data.say;
+                if (s && s.length) {
+                    setSayVoices(s);
+                    if (!s.find(v => v.id === 'Samantha')) setBookVoice(s[0].id);
+                }
             })
             .catch(() => {});
     }, []);
@@ -136,6 +147,52 @@ function App() {
     const handleReadEntry = (en) => {
         if (!en) return;
         reader.start({ segments: splitSentences(en), fileId: currentFileId, getNext: null });
+    };
+
+    // ── Whole-book audiobook (offline) ────────────────────────────────
+    const bookBusy = bookJob && ['extracting', 'running', 'combining'].includes(bookJob.status);
+
+    const handleGenerateBook = async () => {
+        const doc = pdfDocumentRef.current;
+        if (!doc) { alert('請先載入 PDF 文件。'); return; }
+        if (bookBusy) return;
+
+        setBookJob({ status: 'extracting', done: 0, total: 0 });
+        try {
+            const pages = [];
+            for (let i = 1; i <= doc.numPages; i++) {
+                pages.push(await extractPageText(i));
+            }
+            const name = (currentFileName || 'audiobook').replace(/\.pdf$/i, '');
+            const { data } = await axios.post(`${API_BASE_URL}/api/tts/book`, { pages, voice: bookVoice, name });
+            const jobId = data.jobId;
+            setBookJob({ status: 'running', done: 0, total: 0 });
+
+            clearInterval(bookTimerRef.current);
+            bookTimerRef.current = setInterval(async () => {
+                try {
+                    const r = await axios.get(`${API_BASE_URL}/api/tts/book/${jobId}`);
+                    setBookJob(r.data);
+                    if (r.data.status === 'done' || r.data.status === 'error') {
+                        clearInterval(bookTimerRef.current);
+                    }
+                } catch (_) { /* keep polling */ }
+            }, 800);
+        } catch (e) {
+            setBookJob({ status: 'error', error: '生成失敗:' + (e.message || '') });
+        }
+    };
+
+    const revealBook = () => {
+        if (bookJob && bookJob.path && window.gr && window.gr.reveal) {
+            window.gr.reveal(bookJob.path);
+        }
+    };
+
+    const fmtBytes = (n) => {
+        if (!n) return '';
+        if (n > 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+        return `${Math.round(n / 1024)} KB`;
     };
 
     // Load Library on Mount
@@ -571,6 +628,56 @@ function App() {
                                 <span className="en">Read the whole book</span>
                             </button>
                             <p className="gr-audio-hint">段落朗讀:在「精讀」每張卡片點 <Volume2 size={11} style={{ verticalAlign: '-1px' }} />。</p>
+
+                            <div className="gr-book">
+                                <div className="gr-book-head">生成有聲書 · Audiobook <span>離線</span></div>
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">有聲書語音 · macOS</span>
+                                    <select className="gr-input" value={bookVoice} onChange={(e) => setBookVoice(e.target.value)}>
+                                        {(sayVoices.length ? sayVoices : [{ id: 'Samantha', label: 'Samantha' }]).map(v => (
+                                            <option key={v.id} value={v.id}>{v.label || v.id}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <button className="gr-side-btn" onClick={handleGenerateBook} disabled={bookBusy}>
+                                    <span className="zh">{bookBusy ? '生成中…' : '生成整本有聲書'}</span>
+                                    <span className="en">Whole book · .m4a · offline</span>
+                                </button>
+
+                                {bookJob && (
+                                    <div className="gr-book-status">
+                                        {bookJob.status === 'extracting' && <div className="gr-book-line">擷取文字中…</div>}
+                                        {bookJob.status === 'running' && (
+                                            <>
+                                                <div className="gr-book-bar">
+                                                    <div className="gr-book-fill" style={{ width: `${bookJob.total ? Math.round((bookJob.done / bookJob.total) * 100) : 4}%` }} />
+                                                </div>
+                                                <div className="gr-book-line">生成中 · {bookJob.done} / {bookJob.total} 段</div>
+                                            </>
+                                        )}
+                                        {bookJob.status === 'combining' && (
+                                            <>
+                                                <div className="gr-book-bar"><div className="gr-book-fill" style={{ width: '100%' }} /></div>
+                                                <div className="gr-book-line">合併與轉檔中…</div>
+                                            </>
+                                        )}
+                                        {bookJob.status === 'done' && (
+                                            <>
+                                                <div className="gr-book-line gr-book-done">✓ 已生成 · {fmtBytes(bookJob.bytes)}</div>
+                                                {window.gr ? (
+                                                    <button className="gr-side-btn" onClick={revealBook}>
+                                                        <span className="zh">在 Finder 顯示</span>
+                                                        <span className="en">Reveal in Finder</span>
+                                                    </button>
+                                                ) : (
+                                                    <div className="gr-book-path">{bookJob.path}</div>
+                                                )}
+                                            </>
+                                        )}
+                                        {bookJob.status === 'error' && <div className="gr-book-line gr-book-err">{bookJob.error}</div>}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </section>

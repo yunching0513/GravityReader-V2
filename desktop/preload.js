@@ -1,3 +1,7 @@
-// Minimal preload. The renderer is a self-contained web app that only talks to
-// the local backend over HTTP, so no privileged bridge is required. Kept as an
-// explicit, empty preload so contextIsolation stays on with no Node exposure.
+// Minimal, safe bridge. The renderer only needs a couple of native niceties
+// (reveal a generated audiobook in Finder); everything else stays sandboxed.
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('gr', {
+    reveal: (path) => ipcRenderer.invoke('gr:reveal', path),
+});

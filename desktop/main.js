@@ -2,10 +2,17 @@
 // Spawns the bundled Python (FastAPI) backend, waits for it to come up, then
 // loads the built React UI. The backend is terminated when the app quits.
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
 const http = require('http');
 const { spawn } = require('child_process');
+
+// Reveal a generated file (e.g. an exported audiobook) in Finder.
+ipcMain.handle('gr:reveal', (_e, p) => {
+    if (typeof p === 'string' && p) {
+        try { shell.showItemInFolder(p); } catch (_) { /* ignore */ }
+    }
+});
 
 const BACKEND_PORT = Number(process.env.GR_PORT || 8000);
 const BACKEND_HOST = '127.0.0.1';

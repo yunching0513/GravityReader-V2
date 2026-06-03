@@ -1076,6 +1076,61 @@ body::before {
   letter-spacing: 0.03em;
 }
 
+/* audiobook generator (sidebar) */
+.gr-book {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dotted var(--silver);
+}
+.gr-book-head {
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.gr-book-head span {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--ash);
+  padding: 2px 5px;
+}
+.gr-book-status { margin-top: 12px; }
+.gr-book-bar {
+  height: 3px;
+  background: var(--mist);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.gr-book-fill {
+  height: 100%;
+  background: var(--indigo);
+  transition: width 0.4s ease;
+}
+.gr-book-line {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--graphite);
+  margin-bottom: 8px;
+}
+.gr-book-done { color: var(--indigo); font-weight: 500; }
+.gr-book-err { color: var(--indigo-d); text-transform: none; letter-spacing: 0.02em; line-height: 1.6; }
+.gr-book-path {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ash);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
 /* react-pdf text selection tint */
 .react-pdf__Page__textContent ::selection { background: var(--indigo-m); }
 

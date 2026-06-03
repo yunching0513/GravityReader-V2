@@ -4,8 +4,13 @@ import io
 import wave
 import json
 import base64
+import shutil
 import logging
+import tempfile
+import threading
+import subprocess
 import urllib.request
+from typing import List
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -51,6 +56,37 @@ GEMINI_VOICES = [
     {"id": "Charon", "label": "Charon · 低沉男聲"},
     {"id": "Orus", "label": "Orus · 穩重男聲"},
 ]
+
+# Offline whole-book TTS (Phase 2) uses the macOS `say` engine + `afconvert`.
+SAY_AVAILABLE = sys.platform == "darwin"
+BOOK_DIR = os.path.expanduser("~/Music/GravityReader Audiobooks")
+# Surface the better system voices first if they are installed.
+PREFERRED_SAY = ["Samantha", "Alex", "Daniel", "Karen", "Moira", "Tessa", "Rishi", "Serena", "Fred"]
+JOBS = {}            # jobId -> progress dict (in-memory, process lifetime)
+_job_counter = [0]
+
+
+def _list_say_voices():
+    if not SAY_AVAILABLE:
+        return []
+    try:
+        out = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return []
+    voices = []
+    for line in out.splitlines():
+        head = line.split("#")[0].rstrip()
+        if not head:
+            continue
+        parts = head.split()
+        if len(parts) < 2:
+            continue
+        lang = parts[-1]
+        name = " ".join(parts[:-1])
+        if lang.startswith("en"):
+            voices.append({"id": name, "label": f"{name} · {lang}"})
+    voices.sort(key=lambda v: (PREFERRED_SAY.index(v["id"]) if v["id"] in PREFERRED_SAY else 999, v["id"]))
+    return voices
 
 app = FastAPI()
 
@@ -201,7 +237,7 @@ def _gemini_tts(text: str, voice: str) -> bytes:
 
 @app.get("/api/tts/voices")
 def tts_voices():
-    return {"gemini": GEMINI_VOICES}
+    return {"gemini": GEMINI_VOICES, "say": _list_say_voices()}
 
 
 # Defined as a sync `def` so FastAPI runs it in a threadpool — the urllib call
@@ -219,6 +255,113 @@ def tts(req: TtsRequest):
     except Exception as e:
         logger.error(f"TTS error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Whole-book offline audiobook (macOS `say`) ────────────────────────
+
+class BookRequest(BaseModel):
+    pages: List[str] = []
+    voice: str = "Samantha"
+    name: str = "audiobook"
+
+
+def _chunk_pages(pages, max_chars=3000):
+    """Group page texts into ~max_chars chunks (one `say` call per chunk)."""
+    chunks, cur = [], ""
+    for p in pages:
+        t = (p or "").strip()
+        if not t:
+            continue
+        if cur and len(cur) + len(t) + 1 > max_chars:
+            chunks.append(cur)
+            cur = t
+        else:
+            cur = f"{cur}\n{t}" if cur else t
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def _safe_name(name):
+    base = os.path.basename(name or "audiobook")
+    base = "".join(c for c in base if c.isalnum() or c in " -_·()").strip()
+    return (base or "audiobook")[:80]
+
+
+def _generate_book(job_id, pages, voice, name):
+    job = JOBS[job_id]
+    tmp = tempfile.mkdtemp(prefix="gr_book_")
+    try:
+        chunks = _chunk_pages(pages)
+        job["total"] = len(chunks)
+        if not chunks:
+            job.update(status="error", error="這份文件沒有可朗讀的文字。")
+            return
+
+        wavs = []
+        for i, chunk in enumerate(chunks):
+            if job.get("cancel"):
+                job.update(status="error", error="已取消")
+                return
+            txt_path = os.path.join(tmp, f"c{i}.txt")
+            wav_path = os.path.join(tmp, f"c{i}.wav")
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write(chunk)
+            subprocess.run(
+                ["say", "-v", voice, "-o", wav_path,
+                 "--file-format=WAVE", "--data-format=LEI16@22050", "-f", txt_path],
+                check=True, capture_output=True, timeout=900,
+            )
+            wavs.append(wav_path)
+            job["done"] = i + 1
+
+        job["status"] = "combining"
+        combined = os.path.join(tmp, "book.wav")
+        with wave.open(wavs[0], "rb") as w0:
+            params = w0.getparams()
+        with wave.open(combined, "wb") as out:
+            out.setparams(params)
+            for wv in wavs:
+                with wave.open(wv, "rb") as r:
+                    out.writeframes(r.readframes(r.getnframes()))
+
+        os.makedirs(BOOK_DIR, exist_ok=True)
+        final = os.path.join(BOOK_DIR, _safe_name(name) + ".m4a")
+        subprocess.run(
+            ["afconvert", "-f", "m4af", "-d", "aac", combined, final],
+            check=True, capture_output=True, timeout=900,
+        )
+        job.update(status="done", path=final, bytes=os.path.getsize(final))
+    except subprocess.CalledProcessError as e:
+        msg = (e.stderr.decode("utf-8", "ignore") if e.stderr else str(e)) or str(e)
+        job.update(status="error", error=msg[:300])
+    except Exception as e:
+        job.update(status="error", error=str(e)[:300])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@app.post("/api/tts/book")
+def tts_book(req: BookRequest):
+    if not SAY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="離線有聲書生成僅在 macOS 上可用。")
+    _job_counter[0] += 1
+    job_id = f"book{_job_counter[0]}"
+    JOBS[job_id] = {"status": "running", "done": 0, "total": 0, "path": None, "error": None, "bytes": 0}
+    threading.Thread(
+        target=_generate_book,
+        args=(job_id, req.pages, req.voice or "Samantha", req.name),
+        daemon=True,
+    ).start()
+    return {"jobId": job_id}
+
+
+@app.get("/api/tts/book/{job_id}")
+def tts_book_status(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
 
 
 if __name__ == "__main__":
