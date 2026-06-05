@@ -1193,6 +1193,89 @@ body::before {
   letter-spacing: 0.02em;
 }
 
+/* ════════ ZOTERO ════════ */
+.gr-zot-empty {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--ash);
+  text-align: center;
+  padding: 16px 6px;
+  line-height: 1.7;
+}
+.gr-zot-colls { display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
+.gr-zot-coll {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px dotted var(--silver);
+  cursor: pointer;
+  padding: 10px 2px;
+  color: var(--graphite);
+  transition: color 0.2s ease;
+}
+.gr-zot-coll:hover { color: var(--indigo); }
+.gr-zot-coll .zh {
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gr-zot-coll .ct { font-family: var(--mono); font-size: 10px; color: var(--ash); }
+
+.gr-zot-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  padding: 0 0 10px;
+  width: 100%;
+  text-align: left;
+}
+.gr-zot-back:hover { color: var(--indigo); }
+.gr-zot-search { width: 100%; font-family: var(--zh-sans); font-size: 12px; margin-bottom: 10px; }
+.gr-zot-items { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; }
+.gr-zot-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  border-bottom: 1px dotted var(--silver);
+  cursor: pointer;
+  padding: 11px 4px 11px 10px;
+  transition: all 0.2s ease;
+}
+.gr-zot-item:hover { border-left-color: var(--silver); background: var(--indigo-l); }
+.gr-zot-item.is-active { border-left-color: var(--indigo); }
+.gr-zot-item .t {
+  font-family: var(--zh-serif);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.gr-zot-item .m {
+  font-family: var(--en-serif);
+  font-style: italic;
+  font-size: 11px;
+  color: var(--ash);
+}
+
 /* react-pdf text selection tint */
 .react-pdf__Page__textContent ::selection { background: var(--indigo-m); }
 

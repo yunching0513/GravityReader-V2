@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import io
 import time
@@ -6,13 +7,15 @@ import wave
 import json
 import base64
 import shutil
+import sqlite3
 import logging
 import tempfile
 import threading
 import subprocess
 import urllib.request
-from typing import List
+from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
@@ -499,6 +502,144 @@ def tts_book_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     return job
+
+
+# ── Zotero (read-only direct integration) ─────────────────────────────
+# We never touch the live DB: we copy it (+WAL) to a temp file and query that,
+# and serve attachment PDFs straight from Zotero's storage folder.
+
+ZOTERO_DIR = os.getenv("GR_ZOTERO_DIR", os.path.expanduser("~/Zotero"))
+_zt_cache = {"mtime": None, "path": None}
+
+
+def _zotero_conn():
+    src = os.path.join(ZOTERO_DIR, "zotero.sqlite")
+    if not os.path.exists(src):
+        return None
+    mt = os.path.getmtime(src)
+    tmp = _zt_cache.get("path")
+    if not (tmp and _zt_cache.get("mtime") == mt and os.path.exists(tmp)):
+        tmpdir = os.path.join(tempfile.gettempdir(), "gr_zotero")
+        os.makedirs(tmpdir, exist_ok=True)
+        tmp = os.path.join(tmpdir, "zotero.sqlite")
+        shutil.copy2(src, tmp)
+        for ext in ("-wal", "-shm"):
+            if os.path.exists(src + ext):
+                shutil.copy2(src + ext, tmp + ext)
+            elif os.path.exists(tmp + ext):
+                os.remove(tmp + ext)
+        _zt_cache.update(mtime=mt, path=tmp)
+    conn = sqlite3.connect(tmp)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _fetch_items(conn, collection_id=None, query=None, limit=3000):
+    base = """
+        SELECT pi.key AS pkey, pi.itemID AS iid, ai.key AS att_key, ia.path AS path,
+          (SELECT idv.value FROM itemData d JOIN fields f ON f.fieldID=d.fieldID AND f.fieldName='title'
+             JOIN itemDataValues idv ON idv.valueID=d.valueID WHERE d.itemID=pi.itemID) AS title,
+          (SELECT idv.value FROM itemData d JOIN fields f ON f.fieldID=d.fieldID AND f.fieldName='date'
+             JOIN itemDataValues idv ON idv.valueID=d.valueID WHERE d.itemID=pi.itemID) AS date
+        FROM itemAttachments ia
+        JOIN items ai ON ai.itemID = ia.itemID
+        JOIN items pi ON pi.itemID = ia.parentItemID
+    """
+    where = [
+        "ia.contentType='application/pdf'",
+        "ia.path LIKE 'storage:%'",
+        "pi.itemID NOT IN (SELECT itemID FROM deletedItems)",
+        "ai.itemID NOT IN (SELECT itemID FROM deletedItems)",
+    ]
+    params = []
+    if collection_id:
+        base += " JOIN collectionItems ci ON ci.itemID = pi.itemID "
+        where.append("ci.collectionID = ?")
+        params.append(collection_id)
+    sql = base + " WHERE " + " AND ".join(where) + " ORDER BY title COLLATE NOCASE LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(sql, params).fetchall()
+
+    # creators for the result set (first author + "et al.")
+    ids = [r["iid"] for r in rows]
+    creators = {}
+    if ids:
+        marks = ",".join("?" * len(ids))
+        for cr in conn.execute(
+            f"""SELECT ic.itemID AS iid, cr.lastName AS ln, cr.firstName AS fn
+                FROM itemCreators ic JOIN creators cr ON cr.creatorID = ic.creatorID
+                WHERE ic.itemID IN ({marks}) ORDER BY ic.orderIndex""", ids):
+            creators.setdefault(cr["iid"], []).append(cr["ln"] or cr["fn"] or "")
+
+    out = []
+    ql = (query or "").strip().lower()
+    for r in rows:
+        names = creators.get(r["iid"], [])
+        author = (names[0] + (" et al." if len(names) > 1 else "")) if names else ""
+        year = ""
+        if r["date"]:
+            m = re.search(r"\d{4}", r["date"])
+            year = m.group(0) if m else ""
+        title = r["title"] or (r["path"][8:] if r["path"] else "(untitled)")
+        if ql and ql not in title.lower() and ql not in author.lower():
+            continue
+        out.append({
+            "key": r["pkey"], "attKey": r["att_key"],
+            "title": title, "author": author, "year": year,
+        })
+    return out
+
+
+@app.get("/api/zotero/status")
+def zotero_status():
+    conn = _zotero_conn()
+    if not conn:
+        return {"available": False}
+    try:
+        nc = conn.execute("SELECT COUNT(*) FROM collections").fetchone()[0]
+        ni = conn.execute("SELECT COUNT(*) FROM itemAttachments WHERE contentType='application/pdf'").fetchone()[0]
+        return {"available": True, "dataDir": ZOTERO_DIR, "collections": nc, "pdfs": ni}
+    finally:
+        conn.close()
+
+
+@app.get("/api/zotero/collections")
+def zotero_collections():
+    conn = _zotero_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="找不到 Zotero 資料庫。")
+    try:
+        rows = conn.execute(
+            "SELECT collectionID AS id, collectionName AS name, IFNULL(parentCollectionID, 0) AS parent "
+            "FROM collections ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+        return {"collections": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+@app.get("/api/zotero/items")
+def zotero_items(collection: Optional[int] = None, q: Optional[str] = None):
+    conn = _zotero_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="找不到 Zotero 資料庫。")
+    try:
+        return {"items": _fetch_items(conn, collection, q)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/zotero/file/{att_key}")
+def zotero_file(att_key: str):
+    if not att_key.isalnum():
+        raise HTTPException(status_code=400, detail="bad key")
+    folder = os.path.join(ZOTERO_DIR, "storage", att_key)
+    if not os.path.isdir(folder):
+        raise HTTPException(status_code=404, detail="attachment not found")
+    pdf = next((os.path.join(folder, fn) for fn in sorted(os.listdir(folder)) if fn.lower().endswith(".pdf")), None)
+    if not pdf:
+        raise HTTPException(status_code=404, detail="no pdf in attachment")
+    return FileResponse(pdf, media_type="application/pdf")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { AlertCircle, Menu, X, Upload, ChevronDown, Plus, Check, Trash2, Volume2, Headphones } from 'lucide-react';
+import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, Plus, Check, Trash2, Volume2, Headphones } from 'lucide-react';
 import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
 import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote } from './utils/db';
@@ -60,6 +60,16 @@ function App() {
     const currentPageRef = useRef(1);
     const ttsPageRef = useRef(1);     // page currently being read (for auto-advance)
     const pdfDocumentRef = useRef(null);
+
+    // Zotero (read-only) State
+    const [zoteroAvail, setZoteroAvail] = useState(null); // null = unchecked
+    const [zoteroInfo, setZoteroInfo] = useState(null);
+    const [zoteroCollections, setZoteroCollections] = useState([]);
+    const [zoteroActiveColl, setZoteroActiveColl] = useState(null); // {id,name} | 'all'
+    const [zoteroItems, setZoteroItems] = useState([]);
+    const [zoteroSearch, setZoteroSearch] = useState('');
+    const [zoteroLoading, setZoteroLoading] = useState(false);
+    const [currentDocName, setCurrentDocName] = useState(null); // works for library + zotero
 
     // API key (user-supplied) State
     const [hasKey, setHasKey] = useState(null); // null = unknown
@@ -239,7 +249,7 @@ function App() {
             for (let i = 1; i <= doc.numPages; i++) {
                 pages.push(await extractPageText(i));
             }
-            const name = (currentFileName || 'audiobook').replace(/\.pdf$/i, '');
+            const name = (currentDocName || 'audiobook').replace(/\.pdf$/i, '');
             const { data } = await axios.post(`${API_BASE_URL}/api/tts/book`, { pages, voice: bookVoice, name, engine: bookEngine });
             const jobId = data.jobId;
             setBookJob({ status: 'running', done: 0, total: 0 });
@@ -363,6 +373,7 @@ function App() {
                 // Also load into reader immediately
                 setExternalFile(file);
                 setCurrentFileId(newId); // Assuming saveFile returns the ID, checking db.js implementation
+                setCurrentDocName(file.name);
                 setInitialPage(1);
             } catch (err) {
                 console.error("Failed to save file:", err);
@@ -375,13 +386,62 @@ function App() {
         reader.stop();
         setExternalFile(fileData.data);
         setCurrentFileId(fileData.id);
+        setCurrentDocName(fileData.name);
         setInitialPage(fileData.lastPage || 1);
+    };
+
+    // Open a Zotero paper's PDF straight into the reader (read-only).
+    const openZoteroPaper = async (item) => {
+        setZoteroLoading(true);
+        try {
+            reader.stop();
+            const res = await axios.get(`${API_BASE_URL}/api/zotero/file/${item.attKey}`, { responseType: 'blob' });
+            setExternalFile(res.data);
+            setCurrentFileId(`zotero:${item.attKey}`);
+            setCurrentDocName(item.title);
+            setInitialPage(1);
+            setIsSidebarOpen(false);
+        } catch (e) {
+            alert('無法開啟此 PDF。');
+        } finally {
+            setZoteroLoading(false);
+        }
+    };
+
+    const loadZoteroLibrary = async () => {
+        try {
+            const { data } = await axios.get(`${API_BASE_URL}/api/zotero/status`);
+            setZoteroAvail(data.available);
+            setZoteroInfo(data);
+            if (data.available) {
+                const c = await axios.get(`${API_BASE_URL}/api/zotero/collections`);
+                setZoteroCollections(c.data.collections || []);
+            }
+        } catch (_) {
+            setZoteroAvail(false);
+        }
+    };
+
+    const openZoteroCollection = async (coll) => {
+        setZoteroActiveColl(coll);
+        setZoteroItems([]);
+        setZoteroSearch('');
+        setZoteroLoading(true);
+        try {
+            const params = coll === 'all' ? {} : { collection: coll.id };
+            const { data } = await axios.get(`${API_BASE_URL}/api/zotero/items`, { params });
+            setZoteroItems(data.items || []);
+        } catch (_) {
+            setZoteroItems([]);
+        } finally {
+            setZoteroLoading(false);
+        }
     };
 
     const handlePageChange = async (page) => {
         setCurrentPage(page);
         currentPageRef.current = page;
-        if (currentFileId) {
+        if (typeof currentFileId === 'number') {
             try {
                 await updateFilePage(currentFileId, page);
                 // We don't reload the whole library here to avoid UI flickering,
@@ -536,7 +596,6 @@ function App() {
 
     const isBusy = isLoading || isSummarizing;
     const isEmpty = !isBusy && !analysisResult && !summaryResult && !error;
-    const currentFileName = libraryFiles.find(f => f.id === currentFileId)?.name;
 
     return (
         <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}`}>
@@ -606,6 +665,84 @@ function App() {
                                     ))
                                 )}
                             </div>
+                        </div>
+                    )}
+                </section>
+
+                {/* Zotero */}
+                <section className="gr-side-sec">
+                    <button
+                        className="gr-side-toggle"
+                        onClick={() => { toggleSection('zotero'); if (zoteroAvail === null) loadZoteroLibrary(); }}
+                    >
+                        <span className="grp">
+                            <span className="num">Z</span>
+                            <span className="zh">Zotero</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'zotero' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">
+                        {zoteroInfo && zoteroInfo.available ? `${zoteroInfo.collections} 個分類 · ${zoteroInfo.pdfs} 篇` : 'Reference library'}
+                    </div>
+
+                    {openSection === 'zotero' && (
+                        <div className="gr-side-body">
+                            {zoteroAvail === false && (
+                                <div className="gr-zot-empty">找不到執行中的 Zotero,請先開啟 Zotero。</div>
+                            )}
+                            {zoteroAvail && (
+                                <>
+                                    {!zoteroActiveColl ? (
+                                        <div className="gr-zot-colls">
+                                            <button className="gr-zot-coll" onClick={() => openZoteroCollection('all')}>
+                                                <span className="zh">全部論文</span>
+                                                <span className="ct">{zoteroInfo ? zoteroInfo.pdfs : ''}</span>
+                                            </button>
+                                            {zoteroCollections.map(c => (
+                                                <button key={c.id} className="gr-zot-coll" onClick={() => openZoteroCollection(c)}>
+                                                    <span className="zh">{c.name}</span>
+                                                    <ChevronRight size={13} />
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="gr-zot-items-wrap">
+                                            <button className="gr-zot-back" onClick={() => { setZoteroActiveColl(null); setZoteroItems([]); }}>
+                                                <ChevronLeft size={13} /> {zoteroActiveColl === 'all' ? '全部論文' : zoteroActiveColl.name}
+                                            </button>
+                                            <input
+                                                className="gr-input gr-zot-search"
+                                                placeholder="搜尋標題 / 作者…"
+                                                value={zoteroSearch}
+                                                onChange={(e) => setZoteroSearch(e.target.value)}
+                                            />
+                                            {zoteroLoading ? (
+                                                <div className="gr-zot-empty">載入中…</div>
+                                            ) : (
+                                                <div className="gr-zot-items gr-scroll">
+                                                    {zoteroItems
+                                                        .filter(it => {
+                                                            const s = zoteroSearch.trim().toLowerCase();
+                                                            return !s || it.title.toLowerCase().includes(s) || (it.author || '').toLowerCase().includes(s);
+                                                        })
+                                                        .map(it => (
+                                                            <button
+                                                                key={it.attKey}
+                                                                className={`gr-zot-item ${currentFileId === `zotero:${it.attKey}` ? 'is-active' : ''}`}
+                                                                onClick={() => openZoteroPaper(it)}
+                                                                title={it.title}
+                                                            >
+                                                                <span className="t">{it.title}</span>
+                                                                <span className="m">{[it.author, it.year].filter(Boolean).join(' · ')}</span>
+                                                            </button>
+                                                        ))}
+                                                    {!zoteroItems.length && <div className="gr-zot-empty">此分類沒有 PDF。</div>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </>
+                            )}
                         </div>
                     )}
                 </section>
@@ -910,7 +1047,7 @@ function App() {
                         </div>
                         <div className="gr-head-sub">
                             {activeTab === 'notes'
-                                ? (currentFileName ? `《${currentFileName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
+                                ? (currentDocName ? `《${currentDocName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
                                 : (viewMode === 'summary' ? '由 AI 生成的全文摘要。' : '於左側 PDF 中選取文字以進行對譯。')}
                         </div>
                     </div>
