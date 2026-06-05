@@ -34,12 +34,50 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configure Gemini
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if not GOOGLE_API_KEY:
-    logger.warning("GOOGLE_API_KEY not found in environment variables.")
-else:
-    genai.configure(api_key=GOOGLE_API_KEY)
+# ── Gemini API key ────────────────────────────────────────────────────
+# The key is supplied by the user (stored locally) so no key is shipped in the
+# app. Resolution order: a key set this session → the saved config file → an
+# env var (dev / opt-in bundled builds).
+CONFIG_DIR = os.path.expanduser("~/.gravityreader")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+
+
+def _read_config_key():
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return (json.load(f) or {}).get("google_api_key") or None
+    except Exception:
+        return None
+
+
+def _write_config_key(key):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    data = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        except Exception:
+            data = {}
+    data["google_api_key"] = key
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+
+_runtime_key = [_read_config_key() or os.getenv("GOOGLE_API_KEY")]
+
+
+def get_api_key():
+    return _runtime_key[0]
+
+
+def set_api_key(key):
+    _runtime_key[0] = key or None
+    _write_config_key(key or "")
+
+
+if not get_api_key():
+    logger.warning("No Gemini API key configured yet — user must set one in the app.")
 
 # Use a stable alias by default so a retired model version (e.g. the old
 # gemini-2.0-flash) never breaks the app. Override with GEMINI_MODEL if needed.
@@ -115,7 +153,12 @@ async def analyze_text(request: AnalyzeRequest):
     if not request.text:
         raise HTTPException(status_code=400, detail="No text provided")
 
+    key = get_api_key()
+    if not key:
+        raise HTTPException(status_code=503, detail="尚未設定 Gemini API 金鑰,請在 app 設定中填入。")
+
     try:
+        genai.configure(api_key=key)
         model = genai.GenerativeModel(GEMINI_MODEL)
 
         instruction = ""
@@ -160,7 +203,12 @@ async def summarize_text(request: SummarizeRequest):
     if not request.text:
         raise HTTPException(status_code=400, detail="No text provided")
 
+    key = get_api_key()
+    if not key:
+        raise HTTPException(status_code=503, detail="尚未設定 Gemini API 金鑰,請在 app 設定中填入。")
+
     try:
+        genai.configure(api_key=key)
         model = genai.GenerativeModel(GEMINI_MODEL)
         prompt = f"""
         You are a research assistant. Summarize the provided text into approximately {request.length} Traditional Chinese words. Capture the main arguments and conclusions.
@@ -179,6 +227,34 @@ async def summarize_text(request: SummarizeRequest):
 @app.get("/")
 def read_root():
     return {"message": "GravityReader V2 Backend is running"}
+
+
+# ── API key (user-supplied) ───────────────────────────────────────────
+
+class KeyRequest(BaseModel):
+    key: str = ""
+
+
+@app.get("/api/key")
+def key_status():
+    k = get_api_key()
+    masked = f"{k[:4]}…{k[-4:]}" if k and len(k) > 8 else None
+    return {"hasKey": bool(k), "masked": masked}
+
+
+@app.post("/api/key")
+def save_key(req: KeyRequest):
+    key = (req.key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="金鑰不可為空。")
+    # Validate by a lightweight authenticated call before saving.
+    try:
+        genai.configure(api_key=key)
+        next(iter(genai.list_models()))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"金鑰驗證失敗:{str(e)[:140]}")
+    set_api_key(key)
+    return {"ok": True, "hasKey": True}
 
 
 # ── Text-to-Speech ────────────────────────────────────────────────────
@@ -204,7 +280,7 @@ def _gemini_tts(text: str, voice: str) -> bytes:
     """Synthesize one chunk of text with Gemini TTS, returning WAV bytes."""
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_TTS_MODEL}:generateContent?key={GOOGLE_API_KEY}"
+        f"{GEMINI_TTS_MODEL}:generateContent?key={get_api_key()}"
     )
     body = {
         "contents": [{"parts": [{"text": text}]}],
@@ -274,8 +350,8 @@ def tts(req: TtsRequest):
                 raise HTTPException(status_code=503, detail="離線朗讀僅在 macOS 上可用。")
             wav = _say_tts(text, req.voice or "Samantha")
         else:
-            if not GOOGLE_API_KEY:
-                raise HTTPException(status_code=503, detail="GOOGLE_API_KEY not configured")
+            if not get_api_key():
+                raise HTTPException(status_code=503, detail="尚未設定 Gemini API 金鑰,請在 app 設定中填入。")
             wav = _gemini_tts(text, req.voice)
         return Response(content=wav, media_type="audio/wav")
     except HTTPException:
@@ -402,8 +478,8 @@ def tts_book(req: BookRequest):
     if not SAY_AVAILABLE:
         # afconvert (used to write the .m4a) is macOS-only regardless of engine.
         raise HTTPException(status_code=503, detail="有聲書生成僅在 macOS 上可用。")
-    if engine == "gemini" and not GOOGLE_API_KEY:
-        raise HTTPException(status_code=503, detail="Gemini 朗讀需要 GOOGLE_API_KEY。")
+    if engine == "gemini" and not get_api_key():
+        raise HTTPException(status_code=503, detail="尚未設定 Gemini API 金鑰,請在 app 設定中填入。")
 
     default_voice = "Kore" if engine == "gemini" else "Samantha"
     _job_counter[0] += 1

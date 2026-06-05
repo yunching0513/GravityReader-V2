@@ -30,10 +30,13 @@ if [ "${SKIP_BACKEND:-0}" != "1" ]; then
   ( cd backend && ./build_backend.sh )
 fi
 
-echo "▸ [4/5] Bundling backend + .env…"
-if [ ! -f backend/.env ]; then
-  echo "  ⚠️  backend/.env not found — the app will have no Google API key."
-else
+echo "▸ [4/5] Bundling backend…"
+# Keyless by default — users enter their own Gemini key in the app (stored in
+# ~/.gravityreader/config.json). Set BUNDLE_KEY=1 to bake backend/.env in for a
+# personal build (do NOT share such a build — it contains your key).
+rm -f "backend/dist/GravityReaderBackend/.env"
+if [ "${BUNDLE_KEY:-0}" = "1" ] && [ -f backend/.env ]; then
+  echo "  ⚠️  BUNDLE_KEY=1 — baking backend/.env into the app (personal build, do not share)."
   cp backend/.env "backend/dist/GravityReaderBackend/.env"
 fi
 rm -rf desktop/backend

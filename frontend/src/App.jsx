@@ -61,6 +61,13 @@ function App() {
     const ttsPageRef = useRef(1);     // page currently being read (for auto-advance)
     const pdfDocumentRef = useRef(null);
 
+    // API key (user-supplied) State
+    const [hasKey, setHasKey] = useState(null); // null = unknown
+    const [keyMasked, setKeyMasked] = useState(null);
+    const [keyDraft, setKeyDraft] = useState('');
+    const [keySaving, setKeySaving] = useState(false);
+    const [keyError, setKeyError] = useState('');
+
     // Whole-book audiobook State (engine: 'say' offline | 'gemini' cloud)
     const [sayVoices, setSayVoices] = useState([]);
     const [bookEngine, setBookEngine] = useState('say');
@@ -108,6 +115,42 @@ function App() {
     // Offline `say`/`afconvert` are macOS-only; the backend returns no `say`
     // voices on other platforms (e.g. Windows), so we hide offline features.
     const offlineAvailable = sayVoices.length > 0;
+
+    // ── API key ───────────────────────────────────────────────────────
+    const refreshKeyStatus = async () => {
+        try {
+            const { data } = await axios.get(`${API_BASE_URL}/api/key`);
+            setHasKey(data.hasKey);
+            setKeyMasked(data.masked);
+            return data.hasKey;
+        } catch (_) {
+            setHasKey(false);
+            return false;
+        }
+    };
+
+    // On first run with no key, open the key settings to prompt the user.
+    useEffect(() => {
+        refreshKeyStatus().then(has => {
+            if (has === false) { setIsSidebarOpen(true); setOpenSection('apikey'); }
+        });
+    }, []);
+
+    const saveKey = async () => {
+        const k = keyDraft.trim();
+        if (!k) return;
+        setKeySaving(true);
+        setKeyError('');
+        try {
+            await axios.post(`${API_BASE_URL}/api/key`, { key: k });
+            setKeyDraft('');
+            await refreshKeyStatus();
+        } catch (e) {
+            setKeyError((e && e.response && e.response.data && e.response.data.detail) || '儲存失敗,請確認金鑰。');
+        } finally {
+            setKeySaving(false);
+        }
+    };
 
     // Load the available voices once.
     useEffect(() => {
@@ -760,6 +803,46 @@ function App() {
                         </div>
                     )}
                 </section>
+
+                {/* 5. API Key */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('apikey')}>
+                        <span className="grp">
+                            <span className="num">05</span>
+                            <span className="zh">API 金鑰</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'apikey' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">Gemini API Key{hasKey === false ? ' · 待設定' : ''}</div>
+
+                    {openSection === 'apikey' && (
+                        <div className="gr-side-body">
+                            <div className={`gr-key-status ${hasKey ? 'is-ok' : 'is-none'}`}>
+                                {hasKey ? `已設定 · ${keyMasked || ''}` : '尚未設定 — 翻譯/朗讀/摘要需要金鑰'}
+                            </div>
+                            <input
+                                type="password"
+                                className="gr-input gr-key-input"
+                                placeholder="貼上你的 Gemini API 金鑰"
+                                value={keyDraft}
+                                onChange={(e) => setKeyDraft(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') saveKey(); }}
+                            />
+                            {keyError && <div className="gr-key-err">{keyError}</div>}
+                            <button
+                                className="gr-side-btn gr-key-save"
+                                onClick={saveKey}
+                                disabled={keySaving || !keyDraft.trim()}
+                            >
+                                <span className="zh">{keySaving ? '驗證中…' : (hasKey ? '更新金鑰' : '儲存金鑰')}</span>
+                                <span className="en">Validate &amp; save</span>
+                            </button>
+                            <a className="gr-key-link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">
+                                取得免費金鑰 · Google AI Studio →
+                            </a>
+                        </div>
+                    )}
+                </section>
             </aside>
 
             {/* Left Panel — PDF Reader */}
@@ -883,6 +966,17 @@ function App() {
 
                 {/* Body */}
                 <div className="gr-analysis-body gr-scroll">
+                    {hasKey === false && (
+                        <div className="gr-key-banner">
+                            <div>
+                                <div className="gr-key-banner-zh">尚未設定 Gemini API 金鑰</div>
+                                <div className="gr-key-banner-en">翻譯、朗讀與摘要需要你自己的金鑰(免費)。</div>
+                            </div>
+                            <button className="gr-btn gr-btn--accent" onClick={() => { setIsSidebarOpen(true); setOpenSection('apikey'); }}>
+                                前往設定
+                            </button>
+                        </div>
+                    )}
                     {activeTab === 'reading' && (
                         <>
                             {/* Loading */}
