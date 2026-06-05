@@ -222,6 +222,12 @@ function App() {
         reader.start({ segments: splitSentences(en), fileId: currentFileId, getNext: null });
     };
 
+    // Read aloud an arbitrary text selection (from the PDF selection popup).
+    const handleReadSelection = (text) => {
+        if (!text) return;
+        reader.start({ segments: splitSentences(text), fileId: currentFileId, getNext: null });
+    };
+
     // ── Whole-book audiobook ──────────────────────────────────────────
     const bookBusy = bookJob && ['extracting', 'running', 'combining'].includes(bookJob.status);
     const bookVoiceOptions = bookEngine === 'gemini'
@@ -986,6 +992,7 @@ function App() {
             <div className="gr-reader" style={{ width: `${leftWidth}%`, minWidth: '20%' }}>
                 <PdfReader
                     onTextSelect={handleTextSelect}
+                    onReadSelection={handleReadSelection}
                     onDocumentLoad={handleDocumentLoad}
                     highlightedText={highlightedText}
                     highlightColor={highlightColor}
