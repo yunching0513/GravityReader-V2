@@ -28,3 +28,10 @@ desktop/release/
 
 # stray downloaded installers
 GravityReader-Windows/
+
+# iOS (Xcode)
+ios/YunsReader.xcodeproj/
+ios/build/
+ios/DerivedData/
+ios/**/xcuserdata/
+.DS_Store

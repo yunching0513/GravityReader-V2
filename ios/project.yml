@@ -1,0 +1,29 @@
+# XcodeGen spec — run `xcodegen generate` in this folder to create YunsReader.xcodeproj
+# (brew install xcodegen). Or create a new iOS SwiftUI app in Xcode and add the
+# YunsReader/ files manually.
+name: YunsReader
+options:
+  bundleIdPrefix: com.wuyunching
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+targets:
+  YunsReader:
+    type: application
+    platform: iOS
+    sources:
+      - path: YunsReader
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wuyunching.yunsreader
+        PRODUCT_NAME: Yun's Reader
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: YunsReader/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        ENABLE_PREVIEWS: YES
+        CODE_SIGN_STYLE: Automatic
