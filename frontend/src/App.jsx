@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, Plus, Check, Trash2, Volume2, Headphones } from 'lucide-react';
+import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, Plus, Check, Trash2, Volume2, Headphones, Share2 } from 'lucide-react';
 import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
+import ShareCard from './components/ShareCard';
 import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote } from './utils/db';
 import { useAudioReader } from './utils/audioReader';
 import { splitSentences } from './utils/tts';
@@ -48,6 +49,7 @@ function App() {
     const [notes, setNotes] = useState([]);
     const [noteDraft, setNoteDraft] = useState('');
     const [justCaptured, setJustCaptured] = useState(null);
+    const [shareNote, setShareNote] = useState(null); // note being exported as a card
 
     // Read-aloud (TTS) State
     const [ttsVoices, setTtsVoices] = useState(DEFAULT_VOICES);
@@ -644,7 +646,7 @@ function App() {
             <aside className={`gr-sidebar gr-scroll ${isSidebarOpen ? 'is-open' : ''}`}>
                 <div className="gr-side-head">
                     <div className="gr-side-mark">Gravity<span>Reader</span></div>
-                    <div className="gr-side-sub">重力閱讀 · 雙語精讀 · II</div>
+                    <div className="gr-side-sub">昀氏閱讀 · 雙語精讀 · II</div>
                 </div>
 
                 {/* 1. My Library */}
@@ -1289,13 +1291,22 @@ function App() {
                                                 <div className="gr-note-head">
                                                     <span className="gr-note-time">{fmtTime(n.createdAt)}</span>
                                                     {n.source === 'reading' && <span className="gr-note-tag">對譯</span>}
-                                                    <button
-                                                        className="gr-note-del"
-                                                        onClick={() => handleDeleteNote(n.id)}
-                                                        title="刪除"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
+                                                    <span className="gr-note-acts">
+                                                        <button
+                                                            className="gr-note-act"
+                                                            onClick={() => setShareNote(n)}
+                                                            title="做成分享字卡"
+                                                        >
+                                                            <Share2 size={13} />
+                                                        </button>
+                                                        <button
+                                                            className="gr-note-act"
+                                                            onClick={() => handleDeleteNote(n.id)}
+                                                            title="刪除"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </span>
                                                 </div>
                                                 {n.source === 'reading' && (
                                                     <div className="gr-note-quote">
@@ -1313,6 +1324,10 @@ function App() {
                     )}
                 </div>
             </div>
+
+            {shareNote && (
+                <ShareCard note={shareNote} docName={currentDocName} onClose={() => setShareNote(null)} />
+            )}
         </div>
     );
 }

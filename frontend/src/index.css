@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════
-   GravityReader · 重力閱讀
+   GravityReader · 昀氏閱讀
    Visual system — 昀慶手拙 / Fair-faced Concrete + Vermilion
    留白即內容 · 靜中見質
    ════════════════════════════════════════════════════════════════ */
@@ -894,8 +894,8 @@ body::before {
   border: 1px solid var(--indigo);
   padding: 2px 6px;
 }
-.gr-note-del {
-  margin-left: auto;
+.gr-note-acts { margin-left: auto; display: flex; gap: 8px; }
+.gr-note-act {
   background: none;
   border: none;
   cursor: pointer;
@@ -905,8 +905,8 @@ body::before {
   display: flex;
   padding: 2px;
 }
-.gr-note:hover .gr-note-del { opacity: 1; }
-.gr-note-del:hover { color: var(--indigo); }
+.gr-note:hover .gr-note-act { opacity: 1; }
+.gr-note-act:hover { color: var(--indigo); }
 .gr-note-en {
   font-family: var(--en-serif);
   font-size: 16px;
@@ -1371,6 +1371,91 @@ body::before {
 }
 .gr-sel-pop button:last-child { border-right: none; }
 .gr-sel-pop button:hover { background: var(--indigo); color: var(--paper); }
+
+/* ════════ SHARE CARD ════════ */
+.gr-share-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(31, 29, 25, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  animation: gr-fade 0.18s ease;
+}
+.gr-share {
+  background: var(--paper);
+  border: 1px solid var(--stone);
+  box-shadow: 0 24px 80px rgba(31, 29, 25, 0.3);
+  width: min(540px, 96vw);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.gr-share-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--stone);
+}
+.gr-share-title {
+  font-family: var(--zh-serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+.gr-share-x {
+  background: none; border: none; cursor: pointer; color: var(--ash); display: flex;
+  transition: color 0.2s ease;
+}
+.gr-share-x:hover { color: var(--indigo); }
+
+.gr-share-preview {
+  padding: 24px;
+  background: var(--mist);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+.gr-share-canvas {
+  max-width: 100%;
+  max-height: 52vh;
+  width: auto;
+  height: auto;
+  box-shadow: 0 6px 30px rgba(31, 29, 25, 0.22);
+  border: 1px solid var(--stone);
+}
+
+.gr-share-controls {
+  padding: 18px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gr-share-group { display: flex; align-items: center; gap: 14px; }
+.gr-share-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ash);
+  min-width: 32px;
+}
+.gr-share-actions { display: flex; gap: 10px; margin-top: 2px; }
+.gr-share-actions .gr-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 11px 14px;
+  text-transform: none;
+  letter-spacing: 0.06em;
+}
 
 /* react-pdf text selection tint */
 .react-pdf__Page__textContent ::selection { background: var(--indigo-m); }

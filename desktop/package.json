@@ -1,7 +1,7 @@
 {
   "name": "gravityreader-desktop",
   "version": "2.0.0",
-  "description": "GravityReader · 重力閱讀 — bilingual close-reading desktop app",
+  "description": "GravityReader · 昀氏閱讀 — bilingual close-reading desktop app",
   "author": "Wu Yun-Ching",
   "main": "main.js",
   "private": true,
