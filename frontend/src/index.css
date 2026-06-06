@@ -447,7 +447,9 @@ body::before {
   justify-content: center;
   align-items: flex-start;
   padding: 36px;
-  background: var(--mist);
+  /* Light paper "desk" — the page still floats via its shadow, but the
+     surround stays clean instead of a deep concrete grey. */
+  background: var(--paper-2);
 }
 .gr-doc { box-shadow: 0 3px 28px rgba(31, 29, 25, 0.16); border: 1px solid var(--stone); }
 
