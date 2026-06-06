@@ -917,6 +917,7 @@ function App() {
                                                     <div className="gr-book-fill" style={{ width: `${bookJob.total ? Math.round((bookJob.done / bookJob.total) * 100) : 4}%` }} />
                                                 </div>
                                                 <div className="gr-book-line">生成中 · {bookJob.done} / {bookJob.total} 段</div>
+                                                {bookJob.note && <div className="gr-book-line gr-book-wait">{bookJob.note}</div>}
                                             </>
                                         )}
                                         {bookJob.status === 'combining' && (

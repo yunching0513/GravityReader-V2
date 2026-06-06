@@ -1125,6 +1125,7 @@ body::before {
   margin-bottom: 8px;
 }
 .gr-book-done { color: var(--indigo); font-weight: 500; }
+.gr-book-wait { color: var(--indigo-d); letter-spacing: 0.02em; }
 .gr-book-err { color: var(--indigo-d); text-transform: none; letter-spacing: 0.02em; line-height: 1.6; }
 .gr-book-path {
   font-family: var(--mono);

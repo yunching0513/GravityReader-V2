@@ -13,6 +13,7 @@ import tempfile
 import threading
 import subprocess
 import urllib.request
+import urllib.error
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
@@ -406,18 +407,67 @@ def _say_chunk_to_wav(chunk, voice, wav_path, txt_path):
     )
 
 
-def _gemini_chunk_to_wav(chunk, voice, wav_path):
-    # The preview TTS endpoint is rate-limited; retry with exponential backoff
-    # so a long book rides through 429s instead of failing the whole job.
+def _retry_after_seconds(err):
+    """If this is a 429, how long Gemini asks us to wait (Retry-After header or
+    the RetryInfo.retryDelay in the JSON body)."""
+    try:
+        if isinstance(err, urllib.error.HTTPError) and err.code == 429:
+            ra = err.headers.get("Retry-After") if err.headers else None
+            if ra and str(ra).isdigit():
+                return int(ra)
+            body = err.read().decode("utf-8", "ignore")
+            m = re.search(r'"retryDelay"\s*:\s*"(\d+)s"', body)
+            if m:
+                return int(m.group(1))
+            if "429" in body or "RESOURCE_EXHAUSTED" in body:
+                return 30
+    except Exception:
+        pass
+    return None
+
+
+def _is_rate_limit(err):
+    if isinstance(err, urllib.error.HTTPError) and err.code == 429:
+        return True
+    s = str(err)
+    return "429" in s or "Too Many Requests" in s or "RESOURCE_EXHAUSTED" in s
+
+
+def _friendly_error(e):
+    if _is_rate_limit(e):
+        return ("Gemini 免費額度或速率已達上限。請稍候再試,"
+                "或改用「Apple 離線」引擎生成整本有聲書(免費、無速率限制)。")
+    return str(e)[:300]
+
+
+def _gemini_chunk_to_wav(chunk, voice, wav_path, job=None):
+    # The preview TTS endpoint is rate-limited; honour Gemini's own retryDelay
+    # (falling back to exponential backoff) so a long book rides through 429s
+    # instead of failing the whole job.
+    # Enough attempts to ride a transient per-minute limit, but bounded so a
+    # genuinely-exhausted quota fails in a few minutes with a clear suggestion
+    # to use the free, unlimited Apple offline engine for whole books.
+    attempts = 4
     last = None
-    for attempt in range(5):
+    for attempt in range(attempts):
         try:
+            data = _gemini_tts(chunk, voice)
             with open(wav_path, "wb") as f:
-                f.write(_gemini_tts(chunk, voice))
+                f.write(data)
+            if job is not None:
+                job["note"] = None
             return
         except Exception as e:
             last = e
-            time.sleep(min(3 * (2 ** attempt), 30))
+            if not _is_rate_limit(e) and attempt >= 1:
+                raise  # a non-rate-limit error that keeps failing — give up early
+            if attempt == attempts - 1:
+                break
+            wait = _retry_after_seconds(e)
+            wait = min(wait + 2, 70) if wait is not None else min(3 * (2 ** attempt), 45)
+            if job is not None:
+                job["note"] = f"Gemini 速率限制,等待 {wait}s…(剩餘重試 {attempts - 1 - attempt})"
+            time.sleep(wait)
     raise last
 
 
@@ -440,8 +490,8 @@ def _generate_book(job_id, pages, voice, name, engine):
                 return
             wav_path = os.path.join(tmp, f"c{i}.wav")
             if engine == "gemini":
-                _gemini_chunk_to_wav(chunk, voice, wav_path)
-                time.sleep(0.4)  # gentle pacing to ease rate limits
+                _gemini_chunk_to_wav(chunk, voice, wav_path, job=job)
+                time.sleep(1.0)  # gentle pacing to ease rate limits
             else:
                 _say_chunk_to_wav(chunk, voice, wav_path, os.path.join(tmp, f"c{i}.txt"))
             wavs.append(wav_path)
@@ -468,7 +518,7 @@ def _generate_book(job_id, pages, voice, name, engine):
         msg = (e.stderr.decode("utf-8", "ignore") if e.stderr else str(e)) or str(e)
         job.update(status="error", error=msg[:300])
     except Exception as e:
-        job.update(status="error", error=str(e)[:300])
+        job.update(status="error", error=_friendly_error(e))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
