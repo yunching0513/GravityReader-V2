@@ -30,7 +30,12 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
         getNext: null,
         token: 0,        // bumped to cancel any in-flight playback flow
         currentUrl: null,
+        pending: new Map(), // audioKey -> in-flight fetch promise (de-dupes warm + play)
     });
+
+    // How many upcoming sentences to fetch ahead so playback never waits between
+    // clips (the first clip's latency is Gemini's own; everything after is hidden).
+    const LOOKAHEAD = 3;
 
     // Always-fresh copies of changing inputs for use inside async closures.
     const voiceRef = useRef(voice); voiceRef.current = voice;
@@ -42,27 +47,37 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
         if (audioRef.current) audioRef.current.playbackRate = speed;
     }, [speed]);
 
-    // Ensure a clip blob exists (cache-first), without creating an object URL.
+    // Ensure a clip blob exists (cache-first). Concurrent requests for the same
+    // clip (e.g. prefetch + actual play) are coalesced into one network call.
     const ensureBlob = useCallback(async (text, fileId) => {
         const eng = engineRef.current || 'gemini';
         const key = audioKey(fileId, eng, voiceRef.current, text);
-        let blob = await getAudio(key).catch(() => null);
-        if (!blob) {
+        const cached = await getAudio(key).catch(() => null);
+        if (cached) return cached;
+
+        const st = S.current;
+        if (st.pending.has(key)) return st.pending.get(key);
+
+        const p = (async () => {
             const res = await axios.post(
                 `${apiBase}/api/tts`,
                 { text, voice: voiceRef.current, engine: eng },
                 { responseType: 'blob' }
             );
-            blob = res.data;
-            putAudio(key, fileId, blob).catch(() => {});
-        }
-        return blob;
+            putAudio(key, fileId, res.data).catch(() => {});
+            return res.data;
+        })();
+        st.pending.set(key, p);
+        try { return await p; }
+        finally { st.pending.delete(key); }
     }, [apiBase]);
 
-    const warm = useCallback((i) => {
+    // Warm the next LOOKAHEAD sentences in parallel so there's no gap between clips.
+    const warm = useCallback((from) => {
         const st = S.current;
-        if (i < 0 || i >= st.queue.length) return;
-        ensureBlob(st.queue[i], st.fileId).catch(() => {});
+        for (let i = from; i < from + LOOKAHEAD && i < st.queue.length; i++) {
+            ensureBlob(st.queue[i], st.fileId).catch(() => {});
+        }
     }, [ensureBlob]);
 
     const playIndex = useCallback(async (i, token) => {
@@ -97,6 +112,10 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
         setPosition({ index: i + 1, total: st.queue.length });
         onActiveRef.current && onActiveRef.current(text);
 
+        // Kick off the look-ahead now so the next clips fetch in parallel with
+        // this one (not after it arrives).
+        warm(i + 1);
+
         setIsLoading(true);
         let blob;
         try {
@@ -120,8 +139,6 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
             await audio.play();
             setIsPlaying(true);
         } catch (_) { /* play() can reject if interrupted; ignore */ }
-
-        warm(i + 1); // prefetch the next sentence while this one plays
     }, [ensureBlob, warm]);
 
     // Advance when a clip finishes.
