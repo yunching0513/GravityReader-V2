@@ -1105,6 +1105,16 @@ body::before {
   background: var(--ash);
   padding: 2px 5px;
 }
+.gr-book-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 4px;
+}
+.gr-book-range .gr-input { width: 64px; font-family: var(--mono); font-size: 13px; text-align: center; }
+.gr-book-range-sep { font-family: var(--mono); color: var(--ash); }
+.gr-book-range-total { font-family: var(--mono); font-size: 10px; color: var(--ash); letter-spacing: 0.06em; }
+
 .gr-book-status { margin-top: 12px; }
 .gr-book-bar {
   height: 3px;

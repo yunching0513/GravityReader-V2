@@ -84,6 +84,10 @@ function App() {
     const [bookVoice, setBookVoice] = useState('Samantha');
     const [bookJob, setBookJob] = useState(null); // {status, done, total, path, bytes, error}
     const bookTimerRef = useRef(null);
+    const [pdfNumPages, setPdfNumPages] = useState(0);
+    const [bookRangeMode, setBookRangeMode] = useState('all'); // 'all' | 'page' | 'range'
+    const [bookFrom, setBookFrom] = useState(1);
+    const [bookTo, setBookTo] = useState(1);
 
     // API Configuration
     const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -249,13 +253,26 @@ function App() {
         if (!doc) { alert('請先載入 PDF 文件。'); return; }
         if (bookBusy) return;
 
+        // Resolve the page range to generate.
+        const total = doc.numPages;
+        let from = 1, to = total;
+        if (bookRangeMode === 'page') {
+            from = to = currentPageRef.current || 1;
+        } else if (bookRangeMode === 'range') {
+            from = Math.min(Math.max(1, bookFrom || 1), total);
+            to = Math.min(Math.max(from, bookTo || total), total);
+        }
+
         setBookJob({ status: 'extracting', done: 0, total: 0 });
         try {
             const pages = [];
-            for (let i = 1; i <= doc.numPages; i++) {
+            for (let i = from; i <= to; i++) {
                 pages.push(await extractPageText(i));
             }
-            const name = (currentDocName || 'audiobook').replace(/\.pdf$/i, '');
+            const base = (currentDocName || 'audiobook').replace(/\.pdf$/i, '');
+            const name = bookRangeMode === 'all'
+                ? base
+                : `${base} p${from}${to > from ? '-' + to : ''}`;
             const { data } = await axios.post(`${API_BASE_URL}/api/tts/book`, { pages, voice: bookVoice, name, engine: bookEngine });
             const jobId = data.jobId;
             setBookJob({ status: 'running', done: 0, total: 0 });
@@ -533,6 +550,9 @@ function App() {
     const handleDocumentLoad = (pdf) => {
         setPdfDocument(pdf);
         pdfDocumentRef.current = pdf;
+        setPdfNumPages(pdf.numPages);
+        setBookFrom(1);
+        setBookTo(pdf.numPages);
     };
 
     const extractPdfText = async () => {
@@ -897,15 +917,42 @@ function App() {
                                     </select>
                                 </label>
 
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">範圍 · Pages</span>
+                                    <div className="gr-seg gr-seg--full">
+                                        <button className={bookRangeMode === 'all' ? 'is-active' : ''} onClick={() => setBookRangeMode('all')} disabled={bookBusy}>整本</button>
+                                        <button className={bookRangeMode === 'page' ? 'is-active' : ''} onClick={() => setBookRangeMode('page')} disabled={bookBusy}>本頁</button>
+                                        <button className={bookRangeMode === 'range' ? 'is-active' : ''} onClick={() => setBookRangeMode('range')} disabled={bookBusy}>範圍</button>
+                                    </div>
+                                </label>
+                                {bookRangeMode === 'range' && (
+                                    <div className="gr-book-range">
+                                        <input type="number" min="1" max={pdfNumPages || 1} className="gr-input" value={bookFrom}
+                                            onChange={(e) => setBookFrom(parseInt(e.target.value) || 1)} disabled={bookBusy} />
+                                        <span className="gr-book-range-sep">→</span>
+                                        <input type="number" min="1" max={pdfNumPages || 1} className="gr-input" value={bookTo}
+                                            onChange={(e) => setBookTo(parseInt(e.target.value) || 1)} disabled={bookBusy} />
+                                        <span className="gr-book-range-total">/ {pdfNumPages || '—'}</span>
+                                    </div>
+                                )}
+
                                 <p className="gr-audio-hint">
                                     {bookEngine === 'gemini'
-                                        ? '高音質 · 需網路 · 依字數計費,整本較慢且受速率限制。'
+                                        ? '高音質 · 需網路 · 依字數計費。整本易撞速率限制,Gemini 建議用小範圍。'
                                         : '免費 · 離線 · 生成快速。'}
                                 </p>
 
                                 <button className="gr-side-btn" onClick={handleGenerateBook} disabled={bookBusy}>
-                                    <span className="zh">{bookBusy ? '生成中…' : '生成整本有聲書'}</span>
-                                    <span className="en">Whole book · .m4a · {bookEngine === 'gemini' ? 'Gemini' : 'offline'}</span>
+                                    <span className="zh">
+                                        {bookBusy ? '生成中…'
+                                            : bookRangeMode === 'all' ? '生成整本有聲書'
+                                            : bookRangeMode === 'page' ? `生成本頁(p${currentPage})`
+                                            : `生成 p${bookFrom}–${bookTo}`}
+                                    </span>
+                                    <span className="en">
+                                        {bookRangeMode === 'all' ? 'Whole book' : bookRangeMode === 'page' ? 'This page' : `Pages ${bookFrom}-${bookTo}`}
+                                        {' '}· .m4a · {bookEngine === 'gemini' ? 'Gemini' : 'offline'}
+                                    </span>
                                 </button>
 
                                 {bookJob && (
