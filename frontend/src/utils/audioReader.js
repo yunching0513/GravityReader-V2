@@ -15,6 +15,7 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
     const audioRef = useRef(null);
     if (!audioRef.current && typeof Audio !== 'undefined') {
         audioRef.current = new Audio();
+        audioRef.current.preload = 'auto'; // hint the browser to decode immediately
     }
 
     const [isPlaying, setIsPlaying] = useState(false);
@@ -86,6 +87,15 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
 
         // End of the current queue — try to pull the next batch.
         if (i >= st.queue.length) {
+            // Fast path: the next page was already prefetched while the current
+            // page played, so we cross the boundary without any pause.
+            if (st.nextPageSegments && st.nextPageSegments.length) {
+                st.queue = st.nextPageSegments;
+                st.nextPageSegments = null;
+                st.nextPagePrefetched = false;
+                st.idx = -1;
+                return playIndex(0, token);
+            }
             if (st.getNext) {
                 setIsLoading(true);
                 let next = null;
@@ -115,6 +125,25 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
         // Kick off the look-ahead now so the next clips fetch in parallel with
         // this one (not after it arrives).
         warm(i + 1);
+
+        // If we're near the end of the current page's queue and there's a
+        // continuation provider (auto page-turn), preload the next page now
+        // so the page boundary doesn't pause playback.
+        if (st.getNext && !st.nextPagePrefetched && st.queue.length - i <= LOOKAHEAD) {
+            st.nextPagePrefetched = true;
+            (async () => {
+                try {
+                    const next = await st.getNext();
+                    if (st.token === token && next && next.segments && next.segments.length) {
+                        st.nextPageSegments = next.segments;
+                        // Warm the first few clips of the next page in advance.
+                        for (let j = 0; j < Math.min(LOOKAHEAD, next.segments.length); j++) {
+                            ensureBlob(next.segments[j], st.fileId).catch(() => {});
+                        }
+                    }
+                } catch (_) { /* ignore */ }
+            })();
+        }
 
         setIsLoading(true);
         let blob;
@@ -161,6 +190,8 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
         st.idx = -1;
         st.fileId = fileId;
         st.getNext = getNext;
+        st.nextPagePrefetched = false;
+        st.nextPageSegments = null;
         if (!st.queue.length) {
             if (getNext) { playIndex(st.queue.length, st.token); }
             return;
@@ -193,6 +224,7 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
         if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
         if (st.currentUrl) { URL.revokeObjectURL(st.currentUrl); st.currentUrl = null; }
         st.queue = []; st.idx = -1; st.getNext = null;
+        st.nextPagePrefetched = false; st.nextPageSegments = null;
         setIsPlaying(false);
         setActiveText('');
         setPosition({ index: 0, total: 0 });
