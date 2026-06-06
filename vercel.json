@@ -1,14 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "env": {
-    "VITE_NO_BACKEND": "1"
-  },
-  "build": {
-    "env": {
-      "VITE_NO_BACKEND": "1"
-    }
-  },
+  "buildCommand": "npm run build -- --mode web",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
