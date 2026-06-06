@@ -27,9 +27,9 @@ struct ContentView: View {
 
                 VStack { Spacer(); actionBar }
             }
-            .navigationTitle("")
+            .navigationTitle("昀氏閱讀")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { brand }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 18) {
                         Button { showImporter = true } label: { Image(systemName: "doc.badge.plus") }
@@ -65,6 +65,7 @@ struct ContentView: View {
 
     private var emptyState: some View {
         VStack(spacing: 14) {
+            brand.padding(.bottom, 8)
             Text("空").font(Brand.serif(72, .bold)).foregroundStyle(Brand.stone)
             Text("Open a PDF").font(Brand.serif(20).italic()).foregroundStyle(Brand.silver)
             Button {
