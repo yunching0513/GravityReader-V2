@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
 import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, Plus, Check, Trash2, Volume2, Headphones, Share2 } from 'lucide-react';
 import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
@@ -7,6 +6,8 @@ import ShareCard from './components/ShareCard';
 import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote } from './utils/db';
 import { useAudioReader } from './utils/audioReader';
 import { splitSentences } from './utils/tts';
+import * as api from './utils/apiClient';
+const IS_WEB = api.isWebMode();
 
 const DEFAULT_VOICES = [
     { id: 'Kore', label: 'Kore · 沉穩女聲' },
@@ -92,7 +93,6 @@ function App() {
     const [bookTo, setBookTo] = useState(1);
 
     // API Configuration
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
     // ── Read-aloud wiring ─────────────────────────────────────────────
     // Called by the audio reader as each sentence starts (or null when it ends):
@@ -108,7 +108,6 @@ function App() {
     };
 
     const reader = useAudioReader({
-        apiBase: API_BASE_URL,
         voice: ttsVoice,
         speed: ttsSpeed,
         engine: playEngine,
@@ -135,7 +134,7 @@ function App() {
     // ── API key ───────────────────────────────────────────────────────
     const refreshKeyStatus = async () => {
         try {
-            const { data } = await axios.get(`${API_BASE_URL}/api/key`);
+            const data = await api.keyStatus();
             setHasKey(data.hasKey);
             setKeyMasked(data.masked);
             return data.hasKey;
@@ -158,11 +157,11 @@ function App() {
         setKeySaving(true);
         setKeyError('');
         try {
-            await axios.post(`${API_BASE_URL}/api/key`, { key: k });
+            await api.saveKey(k);
             setKeyDraft('');
             await refreshKeyStatus();
         } catch (e) {
-            setKeyError((e && e.response && e.response.data && e.response.data.detail) || '儲存失敗,請確認金鑰。');
+            setKeyError((e && e.response && e.response.data && e.response.data.detail) || e.message || '儲存失敗,請確認金鑰。');
         } finally {
             setKeySaving(false);
         }
@@ -170,11 +169,11 @@ function App() {
 
     // Load the available voices once.
     useEffect(() => {
-        axios.get(`${API_BASE_URL}/api/tts/voices`)
-            .then(res => {
-                const g = res.data && res.data.gemini;
+        api.ttsVoices()
+            .then(data => {
+                const g = data && data.gemini;
                 if (g && g.length) setTtsVoices(g);
-                const s = res.data && res.data.say;
+                const s = data && data.say;
                 if (s && s.length) {
                     setSayVoices(s);
                     if (!s.find(v => v.id === 'Samantha')) setBookVoice(s[0].id);
@@ -275,16 +274,16 @@ function App() {
             const name = bookRangeMode === 'all'
                 ? base
                 : `${base} p${from}${to > from ? '-' + to : ''}`;
-            const { data } = await axios.post(`${API_BASE_URL}/api/tts/book`, { pages, voice: bookVoice, name, engine: bookEngine });
+            const data = await api.startBook({ pages, voice: bookVoice, name, engine: bookEngine });
             const jobId = data.jobId;
             setBookJob({ status: 'running', done: 0, total: 0 });
 
             clearInterval(bookTimerRef.current);
             bookTimerRef.current = setInterval(async () => {
                 try {
-                    const r = await axios.get(`${API_BASE_URL}/api/tts/book/${jobId}`);
-                    setBookJob(r.data);
-                    if (r.data.status === 'done' || r.data.status === 'error') {
+                    const status = await api.bookStatus(jobId);
+                    setBookJob(status);
+                    if (status.status === 'done' || status.status === 'error') {
                         clearInterval(bookTimerRef.current);
                     }
                 } catch (_) { /* keep polling */ }
@@ -420,8 +419,8 @@ function App() {
         setZoteroLoading(true);
         try {
             reader.stop();
-            const res = await axios.get(`${API_BASE_URL}/api/zotero/file/${item.attKey}`, { responseType: 'blob' });
-            setExternalFile(res.data);
+            const blob = await api.zoteroFile(item.attKey);
+            setExternalFile(blob);
             setCurrentFileId(`zotero:${item.attKey}`);
             setCurrentDocName(item.title);
             setInitialPage(1);
@@ -435,12 +434,12 @@ function App() {
 
     const loadZoteroLibrary = async () => {
         try {
-            const { data } = await axios.get(`${API_BASE_URL}/api/zotero/status`);
+            const data = await api.zoteroStatus();
             setZoteroAvail(data.available);
             setZoteroInfo(data);
             if (data.available) {
-                const c = await axios.get(`${API_BASE_URL}/api/zotero/collections`);
-                setZoteroCollections(c.data.collections || []);
+                const c = await api.zoteroCollections();
+                setZoteroCollections(c.collections || []);
             }
         } catch (_) {
             setZoteroAvail(false);
@@ -454,7 +453,7 @@ function App() {
         setZoteroLoading(true);
         try {
             const params = coll === 'all' ? {} : { collection: coll.id };
-            const { data } = await axios.get(`${API_BASE_URL}/api/zotero/items`, { params });
+            const data = await api.zoteroItems(params);
             setZoteroItems(data.items || []);
         } catch (_) {
             setZoteroItems([]);
@@ -525,13 +524,7 @@ function App() {
 
         try {
             // Call Backend API
-            const response = await axios.post(`${API_BASE_URL}/api/analyze`, {
-                text,
-                mode: translationMode
-            });
-
-            // Parse JSON response if it's a string, otherwise use as is
-            let result = response.data;
+            let result = await api.translate(text, translationMode);
             if (typeof result === 'string') {
                 try {
                     result = JSON.parse(result);
@@ -581,11 +574,8 @@ function App() {
 
         try {
             const text = await extractPdfText();
-            const response = await axios.post(`${API_BASE_URL}/api/summarize`, {
-                text: text.substring(0, 30000), // Limit text length to avoid payload issues
-                length: length
-            });
-            setSummaryResult(response.data.summary);
+            const summary = await api.summarize(text.substring(0, 30000), length);
+            setSummaryResult(summary);
         } catch (err) {
             console.error("Summarize Error:", err);
             setError("文件摘要生成失敗。");
@@ -697,7 +687,8 @@ function App() {
                     )}
                 </section>
 
-                {/* Zotero */}
+                {/* Zotero — desktop only (browser can't read the local DB) */}
+                {!IS_WEB && (
                 <section className="gr-side-sec">
                     <button
                         className="gr-side-toggle"
@@ -774,6 +765,7 @@ function App() {
                         </div>
                     )}
                 </section>
+                )}
 
                 {/* 2. Export */}
                 <section className="gr-side-sec">

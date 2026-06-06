@@ -7,9 +7,9 @@
 // same sentence is never regenerated (or re-billed).
 
 import { useRef, useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
 import { getAudio, putAudio } from './db';
 import { audioKey } from './tts';
+import { tts as ttsCall } from './apiClient';
 
 export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
     const audioRef = useRef(null);
@@ -60,18 +60,14 @@ export function useAudioReader({ apiBase, voice, speed, engine, onActive }) {
         if (st.pending.has(key)) return st.pending.get(key);
 
         const p = (async () => {
-            const res = await axios.post(
-                `${apiBase}/api/tts`,
-                { text, voice: voiceRef.current, engine: eng },
-                { responseType: 'blob' }
-            );
-            putAudio(key, fileId, res.data).catch(() => {});
-            return res.data;
+            const blob = await ttsCall({ text, voice: voiceRef.current, engine: eng });
+            putAudio(key, fileId, blob).catch(() => {});
+            return blob;
         })();
         st.pending.set(key, p);
         try { return await p; }
         finally { st.pending.delete(key); }
-    }, [apiBase]);
+    }, []);
 
     // Warm the next LOOKAHEAD sentences in parallel so there's no gap between clips.
     const warm = useCallback((from) => {
