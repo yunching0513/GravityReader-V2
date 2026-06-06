@@ -271,7 +271,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
         <div className="gr-reader" style={{ border: 'none', height: '100%' }} onMouseUp={handleMouseUp}>
             <div className="gr-reader-bar">
                 <div className="gr-brand">
-                    <span className="mark">Gravity<b>Reader</b></span>
+                    <span className="mark">Yun's <b>Reader</b></span>
                     <span className="zh">昀氏閱讀</span>
                 </div>
 

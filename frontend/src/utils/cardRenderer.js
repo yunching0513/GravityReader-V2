@@ -110,7 +110,7 @@ export function renderCard(canvas, note, opts = {}) {
     ctx.textAlign = 'left';
     ctx.fillStyle = theme.ink;
     ctx.font = `italic 600 34px ${EN_SERIF}`;
-    ctx.fillText('GravityReader', sealX + sealS + 26, sealY + 38);
+    ctx.fillText("Yun's Reader", sealX + sealS + 26, sealY + 38);
     ctx.fillStyle = theme.ash;
     ctx.font = `400 20px ${ZH_SERIF}`;
     ctx.fillText('昀氏閱讀 · 精讀筆記', sealX + sealS + 28, sealY + 72);
@@ -194,7 +194,7 @@ export function renderCard(canvas, note, opts = {}) {
     ctx.fillStyle = theme.ash;
     ctx.font = `400 17px ${MONO}`;
     ctx.textAlign = 'right';
-    ctx.fillText('GRAVITYREADER · 昀氏閱讀', W - M, footY - 14);
+    ctx.fillText("YUN'S READER · 昀氏閱讀", W - M, footY - 14);
     ctx.textAlign = 'left';
 
     return canvas;

@@ -1,7 +1,7 @@
 {
   "name": "gravityreader-desktop",
   "version": "2.0.0",
-  "description": "GravityReader · 昀氏閱讀 — bilingual close-reading desktop app",
+  "description": "Yun's Reader · 昀氏閱讀 — bilingual close-reading desktop app",
   "author": "Wu Yun-Ching",
   "main": "main.js",
   "private": true,
@@ -11,7 +11,7 @@
   },
   "build": {
     "appId": "com.wuyunching.gravityreader",
-    "productName": "GravityReader",
+    "productName": "Yun's Reader",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -37,7 +37,7 @@
       "darkModeSupport": false
     },
     "dmg": {
-      "title": "GravityReader"
+      "title": "Yun's Reader"
     },
     "win": {
       "target": [
@@ -48,7 +48,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "shortcutName": "GravityReader"
+      "shortcutName": "Yun's Reader"
     }
   },
   "devDependencies": {

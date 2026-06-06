@@ -110,7 +110,7 @@ function createWindow() {
         minWidth: 920,
         minHeight: 600,
         backgroundColor: '#F1EFE9',
-        title: 'GravityReader',
+        title: "Yun's Reader",
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,

@@ -102,7 +102,7 @@ GEMINI_VOICES = [
 
 # Offline whole-book TTS (Phase 2) uses the macOS `say` engine + `afconvert`.
 SAY_AVAILABLE = sys.platform == "darwin"
-BOOK_DIR = os.path.expanduser("~/Music/GravityReader Audiobooks")
+BOOK_DIR = os.path.expanduser("~/Music/Yun's Reader Audiobooks")
 # Surface the better system voices first if they are installed.
 PREFERRED_SAY = ["Samantha", "Alex", "Daniel", "Karen", "Moira", "Tessa", "Rishi", "Serena", "Fred"]
 JOBS = {}            # jobId -> progress dict (in-memory, process lifetime)

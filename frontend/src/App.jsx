@@ -645,7 +645,7 @@ function App() {
             {/* Sidebar Drawer */}
             <aside className={`gr-sidebar gr-scroll ${isSidebarOpen ? 'is-open' : ''}`}>
                 <div className="gr-side-head">
-                    <div className="gr-side-mark">Gravity<span>Reader</span></div>
+                    <div className="gr-side-mark">Yun's <span>Reader</span></div>
                     <div className="gr-side-sub">昀氏閱讀 · 雙語精讀 · II</div>
                 </div>
 
