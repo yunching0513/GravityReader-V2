@@ -25,3 +25,6 @@ desktop/node_modules/
 desktop/renderer/
 desktop/backend/
 desktop/release/
+
+# stray downloaded installers
+GravityReader-Windows/
