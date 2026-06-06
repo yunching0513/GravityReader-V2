@@ -1458,7 +1458,18 @@ body::before {
 }
 
 /* react-pdf text selection tint */
-.react-pdf__Page__textContent ::selection { background: var(--indigo-m); }
+/* PDF selection: keep the (transparent) text-layer text transparent even while
+   selected — otherwise the browser paints the selected text visibly, and on
+   embedded-font PDFs that text-layer text is misaligned with the canvas, which
+   shows as a ghosted/doubled second copy. Only the vermilion highlight shows;
+   the crisp canvas text underneath stays the single visible layer. */
+.react-pdf__Page__textContent ::selection,
+.react-pdf__Page__textContent span::selection,
+.textLayer ::selection,
+.textLayer span::selection {
+    background: var(--indigo-m);
+    color: transparent;
+}
 
 @media (max-width: 820px) {
   .gr-analysis-head { flex-direction: column; align-items: flex-start; }
