@@ -258,3 +258,22 @@ export async function getDigest(date) {
     if (!r.ok) throw new Error(`Digest ${date} not found.`);
     return r.json();
 }
+
+// ── Shared phrasebook (片語本) — backed by <vault>/Glossary.md ──────────────
+// Desktop-only: it lives in the Obsidian vault on disk, which the browser
+// can't reach. In web mode it degrades to "unavailable / empty".
+export async function glossaryStatus() {
+    if (NO_BACKEND) return { available: false };
+    const r = await axios.get(`${BACKEND_BASE}/api/glossary/status`);
+    return r.data;
+}
+export async function glossaryList() {
+    if (NO_BACKEND) return { entries: [] };
+    const r = await axios.get(`${BACKEND_BASE}/api/glossary/list`);
+    return r.data;
+}
+export async function glossaryRecord(zh, en) {
+    if (NO_BACKEND) throw new Error('片語本(Obsidian)僅在桌面版可用。');
+    const r = await axios.post(`${BACKEND_BASE}/api/glossary/record`, { zh, en });
+    return r.data;
+}

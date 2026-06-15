@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, Plus, Check, Trash2, Volume2, Headphones, Share2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, Plus, Check, Trash2, Volume2, Headphones, Share2, BookMarked } from 'lucide-react';
 import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
 import ShareCard from './components/ShareCard';
@@ -52,6 +52,11 @@ function App() {
     const [noteDraft, setNoteDraft] = useState('');
     const [justCaptured, setJustCaptured] = useState(null);
     const [shareNote, setShareNote] = useState(null); // note being exported as a card
+
+    // Shared phrasebook (片語本) — <vault>/Glossary.md, shared with Typer
+    const [glossary, setGlossary] = useState([]);          // [{zh,en,count,last}]
+    const [glossaryAvail, setGlossaryAvail] = useState(false);
+    const [justGlossaried, setJustGlossaried] = useState(null); // en marker for button feedback
 
     // Read-aloud (TTS) State
     const [ttsVoices, setTtsVoices] = useState(DEFAULT_VOICES);
@@ -155,6 +160,7 @@ function App() {
         refreshKeyStatus().then(has => {
             if (has === false) { setIsSidebarOpen(true); setOpenSection('apikey'); }
         });
+        refreshGlossary();
     }, []);
 
     const saveKey = async () => {
@@ -366,6 +372,45 @@ function App() {
     const handleDeleteNote = async (id) => {
         await deleteNote(id);
         refreshNotes();
+    };
+
+    // ── Shared phrasebook (片語本) ───────────────────────────────────────
+    const refreshGlossary = async () => {
+        try {
+            const s = await api.glossaryStatus();
+            setGlossaryAvail(!!s.available);
+            if (s.available) setGlossary((await api.glossaryList()).entries || []);
+            else setGlossary([]);
+        } catch {
+            setGlossaryAvail(false);
+        }
+    };
+
+    // Index by normalized 中文 AND 英文 so a phrase saved from either app (or
+    // either direction) lights up when you meet it again while reading.
+    const glossaryIndex = useMemo(() => {
+        const m = new Map();
+        for (const e of glossary) {
+            if (e.zh) m.set(e.zh.trim(), e);
+            if (e.en) m.set(e.en.trim().toLowerCase(), e);
+        }
+        return m;
+    }, [glossary]);
+
+    const glossaryHit = (en, zh) =>
+        glossaryIndex.get((en || '').trim().toLowerCase()) ||
+        glossaryIndex.get((zh || '').trim()) || null;
+
+    const handleAddToGlossary = async (en, zh) => {
+        if (!en || !zh) return;
+        try {
+            await api.glossaryRecord(zh, en);
+            setJustGlossaried(en);
+            setTimeout(() => setJustGlossaried(null), 1200);
+            refreshGlossary();
+        } catch (err) {
+            alert(err?.message || '無法寫入片語本。');
+        }
     };
 
     const handleExportNotes = () => {
@@ -1266,6 +1311,15 @@ function App() {
                                                     >
                                                         <Volume2 size={14} />
                                                     </button>
+                                                    {glossaryAvail && (
+                                                        <button
+                                                            className="gr-entry-tool"
+                                                            onClick={(e) => { e.stopPropagation(); handleAddToGlossary(item.en, item.zh); }}
+                                                            title="收進片語本(與 Typer 共用)"
+                                                        >
+                                                            {justGlossaried === item.en ? <Check size={14} /> : <BookMarked size={14} />}
+                                                        </button>
+                                                    )}
                                                     <button
                                                         className="gr-entry-tool"
                                                         onClick={(e) => { e.stopPropagation(); handleCaptureEntry(item.en, item.zh); }}
@@ -1275,6 +1329,18 @@ function App() {
                                                     </button>
                                                 </div>
                                                 <p className="gr-entry-en">{item.en}</p>
+                                                {(() => {
+                                                    const hit = glossaryHit(item.en, item.zh);
+                                                    return hit ? (
+                                                        <div className="gr-entry-glossary" title={`你用過這個譯法 · 最近 ${hit.last || '—'}`}>
+                                                            <BookMarked size={12} />
+                                                            <span>片語本 ×{hit.count}</span>
+                                                            {hit.en && hit.en.trim().toLowerCase() !== (item.en || '').trim().toLowerCase() && (
+                                                                <span className="gr-entry-glossary-alt">先前:{hit.en}</span>
+                                                            )}
+                                                        </div>
+                                                    ) : null;
+                                                })()}
                                                 <div className="gr-entry-rule" />
                                                 <p className="gr-entry-zh">{item.zh}</p>
                                             </div>

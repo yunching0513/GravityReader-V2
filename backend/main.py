@@ -22,6 +22,8 @@ from pydantic import BaseModel
 import google.generativeai as genai
 from dotenv import load_dotenv
 
+import glossary as glossary_store
+
 # Resolve the directory the app is running from. When packaged by PyInstaller
 # (sys.frozen), files live next to the executable; otherwise next to this file.
 if getattr(sys, "frozen", False):
@@ -737,6 +739,33 @@ def get_digest(date: str):
             return json.load(f)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Shared phrasebook (片語本) — backed by <vault>/Glossary.md ──────────
+class GlossaryRecord(BaseModel):
+    zh: str
+    en: str
+
+
+@app.get("/api/glossary/status")
+def glossary_status():
+    return glossary_store.status()
+
+
+@app.get("/api/glossary/list")
+def glossary_list():
+    return {"entries": glossary_store.load()}
+
+
+@app.post("/api/glossary/record")
+def glossary_record(req: GlossaryRecord):
+    try:
+        entry = glossary_store.record(req.zh, req.en)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return {"entry": entry}
 
 
 if __name__ == "__main__":
