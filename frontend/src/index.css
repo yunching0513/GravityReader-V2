@@ -642,6 +642,24 @@ body::before {
 }
 .gr-entry:hover .gr-entry-rule { background: var(--silver); }
 .gr-entry.is-active .gr-entry-rule { background: var(--indigo-m); }
+
+/* Shared phrasebook hit — "you've saved this phrase before" */
+.gr-entry-glossary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--indigo);
+}
+.gr-entry-glossary-alt {
+  color: var(--silver);
+  font-style: italic;
+  letter-spacing: 0;
+}
 .gr-entry-zh {
   font-family: var(--zh-serif);
   font-size: 17px;
