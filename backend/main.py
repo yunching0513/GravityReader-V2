@@ -692,6 +692,53 @@ def zotero_file(att_key: str):
     return FileResponse(pdf, media_type="application/pdf")
 
 
+# ── Daily Research Digest ─────────────────────────────────────────────
+# Digest JSON files live in frontend/public/digests/ so the same files are
+# served as static assets in the web/Vercel build without duplication.
+
+DIGESTS_DIR = os.getenv(
+    "GR_DIGESTS_DIR",
+    os.path.join(BASE_DIR, "..", "frontend", "public", "digests"),
+)
+
+
+def _digest_index_path():
+    return os.path.join(DIGESTS_DIR, "index.json")
+
+
+def _digest_path(date: str):
+    # Sanitise: only allow YYYY-MM-DD to prevent path traversal.
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        return None
+    return os.path.join(DIGESTS_DIR, f"{date}.json")
+
+
+@app.get("/api/digests")
+def list_digests():
+    idx = _digest_index_path()
+    if not os.path.exists(idx):
+        return []
+    try:
+        with open(idx, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+@app.get("/api/digests/{date}")
+def get_digest(date: str):
+    path = _digest_path(date)
+    if not path:
+        raise HTTPException(status_code=400, detail="Invalid date format — expected YYYY-MM-DD.")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"Digest not found: {date}")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     # Entry point for the bundled (PyInstaller) backend. The Electron main
     # process spawns this executable and waits for the port to respond.

@@ -1,0 +1,331 @@
+{
+  "date": "2026-06-16",
+  "version": 1,
+  "title": "Taiwan PhD Research Digest · 台灣博士生研究摘要",
+  "fields": ["AI × Spatial Environments", "Urban Planning", "Traffic Safety", "GIS", "Humanities & Social Sciences", "Public Participation"],
+  "sections": [
+    {
+      "id": "eu_funding",
+      "title": "歐盟與歐洲博士全額獎學金 · European & EU Fully-Funded Doctoral Scholarships",
+      "type": "opportunities",
+      "items": [
+        {
+          "title": "Marie Skłodowska-Curie Doctoral Networks (MSCA-DN) 2026",
+          "funder": "European Commission / Horizon Europe",
+          "deadline": "2026-11-24",
+          "deadline_label": "2026年11月24日",
+          "status": "open",
+          "eligibility": "全球開放；博士候選人（新入學）；加入由三所以上歐盟/Horizon關聯國機構組成的跨國聯盟；提供月薪€4,010 + 流動補助€710 + 家庭補助€660；本屆總預算€5.93億，資助逾1,950位博士生",
+          "tags": ["EU", "MSCA", "PhD", "fully-funded", "interdisciplinary", "global"],
+          "url": "https://marie-sklodowska-curie-actions.ec.europa.eu/node/1493"
+        },
+        {
+          "title": "Marie Skłodowska-Curie Postdoctoral Fellowships (MSCA-PF) 2026",
+          "funder": "European Commission / Horizon Europe",
+          "deadline": "2026-09-09",
+          "deadline_label": "2026年9月9日",
+          "status": "open",
+          "eligibility": "全球開放；已獲博士學位、研究年資8年以內；歐洲境內駐地型（12–24個月）或全球型（出境24個月＋回歸12個月）；含薪資、流動補助、家庭補助及研究經費",
+          "tags": ["EU", "MSCA", "postdoc", "fully-funded", "global"],
+          "url": "https://marie-sklodowska-curie-actions.ec.europa.eu/node/1495"
+        },
+        {
+          "title": "DAAD Doctoral Programmes in Germany 2026–2027",
+          "funder": "Deutscher Akademischer Austauschdienst (DAAD) · 德國學術交流總署",
+          "deadline": "2026-10-21",
+          "deadline_label": "2026年10月21日（因校而異，請查DAAD資料庫確認）",
+          "status": "open",
+          "eligibility": "全球開放；計畫在德國攻讀博士或進行博士研究；月補助€1,400起；涵蓋健保、旅費、德語課補助；需具良好學術背景",
+          "tags": ["Germany", "DAAD", "PhD", "fully-funded", "global"],
+          "url": "https://www.daad.de/en/study-and-research-in-germany/scholarships/"
+        },
+        {
+          "title": "Swiss Government Excellence Scholarships 2027–2028",
+          "funder": "Swiss Federal Commission for Scholarships (FCS) · 瑞士聯邦獎學金委員會",
+          "deadline": "2026-12-01",
+          "deadline_label": "2026年8月開放申請；各國截止日期不同，建議於2026年8月查詢台灣辦事處公告",
+          "status": "upcoming",
+          "eligibility": "全球開放（含台灣）；博士研究或博士後研究；需具碩士學位（2026年7月31日前取得）；含學費、月補助、健保及旅費；PhD為期12個月，可展延至36個月",
+          "tags": ["Switzerland", "PhD", "postdoc", "fully-funded", "global"],
+          "url": "https://www.sbfi.admin.ch/en/swiss-government-excellence-scholarships"
+        },
+        {
+          "title": "Gates Cambridge Scholarship 2027–2028",
+          "funder": "Gates Cambridge Trust · 比爾與梅琳達·蓋茲基金會",
+          "deadline": "2025-12-02",
+          "deadline_label": "2025年12月（美國輪）/ 2026年1月（國際輪）【已截止，留意2027年開放】",
+          "status": "closed",
+          "eligibility": "非英國公民；申請劍橋大學全職碩士或博士課程；約80個名額；涵蓋全額學費、每年約£21,000生活費、旅費及簽證費；選拔注重學術卓越、領導力與利他精神",
+          "tags": ["UK", "Cambridge", "PhD", "fully-funded", "global"],
+          "url": "https://www.gatescambridge.org/"
+        },
+        {
+          "title": "Fulbright Foreign Student Program 2026–2027",
+          "funder": "U.S. Department of State / Fulbright Taiwan · 美台富布萊特",
+          "deadline": "2025-06-30",
+          "deadline_label": "2025年6月（台灣申請輪）【已截止，2027年輪次約2026年春開放】",
+          "status": "closed",
+          "eligibility": "台灣公民；赴美攻讀博士或從事研究；12個月（可展延12個月）；含月補助、醫療保險、旅費",
+          "tags": ["USA", "Fulbright", "PhD", "fully-funded", "Taiwan"],
+          "url": "https://www.fulbright.org.tw/"
+        }
+      ]
+    },
+    {
+      "id": "taiwan_funding",
+      "title": "台灣在地獎學金與研究補助 · Taiwan-Based Funding & Scholarships",
+      "type": "opportunities",
+      "items": [
+        {
+          "title": "NSTC International Internship Programme 2026",
+          "funder": "國家科學及技術委員會（NSTC）",
+          "deadline": "2026-07-15",
+          "deadline_label": "2026年7月15日",
+          "status": "open",
+          "eligibility": "全球大學部、碩士、博士生；於台灣研究機構進行研究實習；600個名額；全額補助含生活津貼與住宿",
+          "tags": ["Taiwan", "NSTC", "internship", "fully-funded", "global"],
+          "url": "https://ineedscholarship.com/2026/01/nstc-international-internship-2026-in-taiwan-paid-research-opportunity-apply-now.html"
+        },
+        {
+          "title": "Visegrad–Taiwan Scholarships",
+          "funder": "International Visegrad Fund",
+          "deadline": "2026-12-31",
+          "deadline_label": "滾動申請，請查官網最新截止日",
+          "status": "rolling",
+          "eligibility": "V4國家（捷克、匈牙利、波蘭、斯洛伐克）的博士早期研究者；社會科學、人文、資訊科技、生技等領域；赴台灣進行研究",
+          "tags": ["Taiwan", "Visegrad", "PhD", "V4", "humanities", "social-science"],
+          "url": "https://www.visegradfund.org/visegrad-taiwan-scholarships-apply"
+        },
+        {
+          "title": "MOFA Taiwan Fellowship 2027（下一輪）",
+          "funder": "中華民國外交部（MOFA）",
+          "deadline": "2026-06-30",
+          "deadline_label": "2025年招募輪已截止；2027研究年度申請預計於2026年5–6月開放",
+          "status": "closed",
+          "eligibility": "外籍學者與專家；台灣研究、漢學、兩岸關係、亞太事務；月補助NT$60,000 + 來回機票 + 保險；在台進行6–12個月研究",
+          "tags": ["Taiwan", "MOFA", "fellowship", "humanities", "social-science"],
+          "url": "https://en.mofa.gov.tw/cp.aspx?n=1326"
+        },
+        {
+          "title": "NSTC Graduate Research Fellowship (GRF) — Pilot",
+          "funder": "國家科學及技術委員會（NSTC）",
+          "deadline": "2026-01-15",
+          "deadline_label": "2026年1月15日【已截止，留意2027年公告】",
+          "status": "closed",
+          "eligibility": "在台就讀博士班學生；月補助TWD 40,000，最長3年；試辦計畫",
+          "tags": ["Taiwan", "NSTC", "PhD", "stipend"],
+          "url": "https://www.nstc.gov.tw/folksonomy/list/2f1dc719-333f-4dcc-aefc-dbe719a65d37?l=en"
+        }
+      ]
+    },
+    {
+      "id": "conferences",
+      "title": "研討會論文徵稿 · Conference Calls for Papers",
+      "type": "opportunities",
+      "items": [
+        {
+          "title": "IntelliSys 2026 — 12th Intelligent Systems Conference",
+          "funder": "SAI Organization",
+          "deadline": "2026-09-04",
+          "deadline_label": "滾動收稿（會議：2026年9月3–4日，荷蘭阿姆斯特丹）",
+          "status": "open",
+          "eligibility": "開放投稿；AI、深度學習、LLM、可解釋AI、機器人、交通AI；雙盲審查；錄取後由Springer出版（LNNS系列）",
+          "tags": ["AI", "deep-learning", "traffic", "NLP", "conference"],
+          "url": "https://saiconference.com/IntelliSys/CallforPapers"
+        },
+        {
+          "title": "APRU Sustainable Cities & Landscapes Conference 2026（第9屆）",
+          "funder": "Association of Pacific Rim Universities (APRU)",
+          "deadline": "2026-12-31",
+          "deadline_label": "日期待定，請查 APRU 官網",
+          "status": "rolling",
+          "eligibility": "亞太地區大學研究者；城市AI、智慧城市、公眾參與、高齡友善社區；多元投稿格式",
+          "tags": ["Asia-Pacific", "smart-city", "AI", "public-participation", "sustainable"],
+          "url": "https://www.apru.org/event/9th-annual-apru-sustainable-cities-and-landscapes-conference-2026/"
+        },
+        {
+          "title": "ISPRS Congress 2026 — XXV International Congress",
+          "funder": "ISPRS + CSRS",
+          "deadline": "2025-11-17",
+          "deadline_label": "2025年11月17日【已截止；會議：2026年7月4–11日，多倫多】",
+          "status": "closed",
+          "eligibility": "空間AI、3D建模、點雲處理、城市感測、遙感影像分析；可前往觀摩與交流",
+          "tags": ["GIS", "remote-sensing", "spatial-AI", "LiDAR", "urban-sensing"],
+          "url": "https://www.isprs2026toronto.com/"
+        },
+        {
+          "title": "DH2026: Engagement — Digital Humanities",
+          "funder": "ADHO / Korean Association for Digital Humanities (KADH)",
+          "deadline": "2025-12-15",
+          "deadline_label": "2025年12月15日【已截止；會議：2026年7月27–31日，大田（韓國）】",
+          "status": "closed",
+          "eligibility": "數位人文、AI與文化研究、東亞數位學術；英文或韓文投稿",
+          "tags": ["digital-humanities", "AI", "humanities", "Asia"],
+          "url": "https://dh2026.adho.org/"
+        },
+        {
+          "title": "AAG Annual Meeting 2026",
+          "funder": "American Association of Geographers (AAG)",
+          "deadline": "2025-10-30",
+          "deadline_label": "2025年10月30日【已截止；會議已舉行（2026年3月，舊金山）】",
+          "status": "closed",
+          "eligibility": "地理學、GIScience、生成式AI × 地理資訊、城市規劃；留意2027年公告",
+          "tags": ["geography", "GIS", "generative-AI", "urban-planning"],
+          "url": "https://www.aag.org/events/aag2026/"
+        }
+      ]
+    },
+    {
+      "id": "journals",
+      "title": "期刊投稿機會 · Journal Submission Opportunities",
+      "type": "opportunities",
+      "items": [
+        {
+          "title": "Cities (Elsevier) — Rolling CFPs",
+          "funder": "Elsevier",
+          "deadline": "2099-12-31",
+          "deadline_label": "全年滾動收稿",
+          "status": "rolling",
+          "eligibility": "城市永續、智慧城市、住宅、治理、公民參與；SSCI收錄；接受英文投稿",
+          "tags": ["urban-planning", "smart-city", "sustainability", "SSCI"],
+          "url": "https://www.sciencedirect.com/journal/cities/about/call-for-papers"
+        },
+        {
+          "title": "Urban Planning (Cogitatio Press) — Open Issue",
+          "funder": "Cogitatio Press",
+          "deadline": "2099-12-31",
+          "deadline_label": "全年滾動收稿（開放取用）",
+          "status": "rolling",
+          "eligibility": "城市規劃理論與實務、公眾參與、空間政策、數位規劃工具；開放取用期刊；無版面費",
+          "tags": ["urban-planning", "public-participation", "GIS", "open-access"],
+          "url": "https://www.cogitatiopress.com/urbanplanning/issue/futureissues"
+        },
+        {
+          "title": "ISPRS Journal of Photogrammetry and Remote Sensing — Active CFPs",
+          "funder": "Elsevier / ISPRS",
+          "deadline": "2099-12-31",
+          "deadline_label": "依各特刊截止日期，請查官網",
+          "status": "rolling",
+          "eligibility": "空間AI、城市遙測、點雲、地形製圖、環境監測；SCI收錄",
+          "tags": ["GIS", "remote-sensing", "spatial-AI", "SCI"],
+          "url": "https://www.sciencedirect.com/journal/isprs-journal-of-photogrammetry-and-remote-sensing/about/call-for-papers"
+        },
+        {
+          "title": "International Journal of E-Planning Research (IJEPR)",
+          "funder": "IGI Global",
+          "deadline": "2099-12-31",
+          "deadline_label": "全年滾動收稿",
+          "status": "rolling",
+          "eligibility": "智慧城市治理、電子公民參與、數位規劃工具、GIS於規劃中的應用；接受英文投稿",
+          "tags": ["urban-planning", "e-participation", "GIS", "smart-city"],
+          "url": "https://www.igi-global.com/journal/international-journal-e-planning-research/1161"
+        }
+      ]
+    },
+    {
+      "id": "bloomberg",
+      "title": "Bloomberg 城市精選 · Bloomberg CityLab — Bilingual Articles",
+      "type": "articles",
+      "items": [
+        {
+          "title": "Mayors AI Forum Launched at Bloomberg CityLab 2026 Summit",
+          "source": "SmartCitiesWorld",
+          "published": "2026-04-28",
+          "url": "https://www.smartcitiesworld.net/news/mayors-ai-forum-launched-at-bloomberg-citylab-2026-summit",
+          "paragraphs": [
+            {
+              "en": "Bloomberg Philanthropies and Johns Hopkins University have announced the launch of the Mayors AI Forum at the Bloomberg CityLab 2026 summit, taking place in Madrid until 29 April.",
+              "zh": "彭博慈善基金會（Bloomberg Philanthropies）與約翰霍普金斯大學，於2026年彭博城市實驗室峰會上正式宣布啟動「市長人工智慧論壇」（Mayors AI Forum）。峰會在西班牙馬德里舉行，至4月29日閉幕。"
+            },
+            {
+              "en": "Founding members include mayors of Bogotá, Boston, Buenos Aires, Kyiv, London, Madrid, Nairobi, San Antonio, San Francisco, and Tokyo.",
+              "zh": "創始成員涵蓋波哥大、波士頓、布宜諾斯艾利斯、基輔、倫敦、馬德里、奈洛比、聖安東尼奧、舊金山及東京等城市的市長。"
+            },
+            {
+              "en": "The initiative aims to bring together mayors from across the globe to shape how AI is developed and deployed, accelerating practical applications in government, working directly with companies as tools are designed. It will also shape policy from the economic centres where its promise is consequential and its impacts are immediate.",
+              "zh": "該倡議旨在匯聚全球各地的市長，共同引導人工智慧的開發與部署方式，加速AI在政府治理中的實際應用，並在工具設計階段直接與企業合作。論壇亦將從AI潛力最顯著、影響最為直接的經濟核心城市出發，積極形塑相關政策走向。"
+            },
+            {
+              "en": "Michael Bloomberg stated: \"Mayors have often been early leaders on global challenges – even as national and international responses lagged. Now, the Mayors AI Forum will help put them at the forefront of conversations about the future of AI.\"",
+              "zh": "邁可·彭博（Michael Bloomberg）表示：「面對全球性挑戰，市長們往往是最早採取行動的領導者——即便在國家與國際層面的回應尚為滯後之時。如今，市長人工智慧論壇將協助他們站上有關AI未來走向討論的最前沿。」"
+            },
+            {
+              "en": "Mayors hold the clearest ground-level view of AI's real-world potential and challenges for residents spanning energy utilisation to workforce implications. Yet the choices defining AI — standards set by corporations, regulations written by legislators, frameworks adopted by international bodies — are largely made without mayoral input. This creates a widening gap between where policy is set and where it is experienced.",
+              "zh": "市長們對AI在現實生活中的潛力與挑戰擁有最清晰的第一線視野，從能源使用到勞動力衝擊皆涵蓋其中。然而，定義AI走向的關鍵決策——包括企業設定的技術標準、立法者起草的法規，以及國際機構採納的框架——卻大多在缺乏市長參與的情況下拍板定案，造成政策制定地點與政策實際影響地點之間日益擴大的落差。"
+            },
+            {
+              "en": "The Forum, supported by the Bloomberg Centre for Government Excellence at Johns Hopkins, aims to close this divide by enabling mayors to engage developers as systems are built, spread proven use cases across cities, and ground national and global direction in local realities.",
+              "zh": "此論壇由約翰霍普金斯大學彭博政府卓越中心（Bloomberg Centre for Government Excellence）提供支持，目標在於彌合上述落差：使市長得以在系統建置階段直接參與開發者對話、將已驗證的應用案例推廣至各城市，並將國家與全球政策方向扎根於地方現實之中。"
+            },
+            {
+              "en": "Ruth Porat, president and chief investment officer of Alphabet and Google, noted: \"AI creates extraordinary opportunities for city halls to improve daily services and fuel economic growth. It is critical their leaders can help drive its trajectory.\"",
+              "zh": "Alphabet與Google總裁暨首席投資長露絲·波拉特（Ruth Porat）指出：「人工智慧為市政府改善日常服務、推動經濟成長創造了非凡機遇。相關領導者能夠參與AI發展方向的引導，至關重要。」"
+            },
+            {
+              "en": "The Forum's founding mayors represent 10 cities across eight countries and five continents, home to over 100 million residents. These major metropolises are innovation hubs deploying AI across permitting, public safety, urban management, citizen engagement, infrastructure, workforce development, and service delivery.",
+              "zh": "論壇的創始市長代表來自五大洲、八個國家的十座城市，合計居住人口逾一億人。這些大都會是各區域的創新樞紐，在公共領域的AI應用方面居全球前列，應用範疇涵蓋許可審批、公共安全、城市管理、公民參與、基礎設施、勞動力培育及服務遞送等面向。"
+            },
+            {
+              "en": "Mayor Vitali Klitschko of Kyiv noted that despite ongoing conflict, the city continues developing digital services: \"This creates an opportunity to shape global approaches to the use of AI together with some of the world's most advanced cities, building on both their experience and our own.\"",
+              "zh": "基輔市長維塔利·克利奇科（Vitali Klitschko）表示，儘管衝突持續，基輔仍不斷開發數位服務：「這為我們創造了一個機會，與世界上最先進的城市攜手，共同塑造全球對AI應用的態度，並在彼此的經驗基礎上共同前進。」"
+            }
+          ]
+        },
+        {
+          "title": "The New Urban Order: 8 Big Ideas from Bloomberg CityLab in 2026",
+          "source": "The Philadelphia Citizen",
+          "published": "2026-05-15",
+          "url": "https://thephiladelphiacitizen.org/2026-bloomberg-citylab/",
+          "author": "Diana Lind",
+          "paragraphs": [
+            {
+              "en": "In the future, cities will be working at night, skiing atop waste plants, buying single room homes, and measuring everything with AI, according to this year's Bloomberg CityLab in Madrid.",
+              "zh": "根據今年在馬德里舉辦的彭博城市實驗室傳遞的願景，未來的城市將在夜間運轉、在廢棄物處理廠頂部滑雪、購買單人房產，並以AI衡量一切。"
+            },
+            {
+              "en": "[On Harnessing AI] Throughout the conference, projects and policies using AI came up. London's Mayor Sadiq Khan has not only created an AI and Jobs taskforce, but will be offering free AI training to Londoners later this year. We also heard from Jigsaw, a Google incubator, about an AI-powered civic engagement tool intended to close the \"listening gap\" — the difference between the number of people who are heard and those who want to be heard.",
+              "zh": "【善用人工智慧】本屆大會自始至終，AI相關的計畫與政策持續被提及。倫敦市長薩迪克·汗（Sadiq Khan）不僅成立了「AI與就業」特別工作組，更計畫在年內向倫敦市民提供免費AI培訓課程。我們亦聽取了Google旗下孵化器Jigsaw的報告，介紹一款以AI驅動的公民參與工具，旨在縮小「傾聽落差」——即實際被聆聽者與渴望被聆聽者之間的數量差距。"
+            },
+            {
+              "en": "Daniel Ramot, co-founder and CEO of Via, showed how AI can increase the return on investing in transit by creating dynamically routed microshuttles instead of more frequent buses along fixed routes.",
+              "zh": "Via共同創辦人暨執行長丹尼爾·拉莫特（Daniel Ramot）展示了AI如何提升交通投資效益——以動態路徑微型接駁車取代固定路線的增班公車，更靈活地回應乘客需求。"
+            },
+            {
+              "en": "MIT Senseable City Lab's Carlo Ratti described returning to William H. Whyte's foundational 1970s research on public space and reanalyzing it alongside contemporary footage from the same New York, Boston, and Philadelphia locations using AI. The results were striking: People now walk 15% faster through public space; solo walkers have increased 68%; lingering and spontaneous social interaction have declined dramatically.",
+              "zh": "MIT可感知城市實驗室的卡洛·拉蒂（Carlo Ratti）描述了以AI重新分析威廉·H·懷特1970年代奠基性公共空間研究的成果。結果令人震撼：人們穿越公共空間的速度加快了15%；獨行者比例上升了68%；駐足停留與自發性社交互動則大幅減少。"
+            },
+            {
+              "en": "\"AI's ability to make measurement faster and cheaper is going to really help us manage our cities in ways we're just beginning to grasp.\"",
+              "zh": "「AI使測量更快速、更廉價的能力，將真正協助我們以我們才剛開始理解的方式管理城市。」"
+            },
+            {
+              "en": "[On Utopian Pragmatism] Bjarke Ingels presented the design mindset he calls \"utopian pragmatism\": Given this real site, this real budget, these real constraints, how do we make this small piece of the world as close to our dream world as possible? Examples included Copenhill — a waste-to-energy plant with a ski slope atop it — and Gelephu Mindfulness City in Bhutan, designed from scratch around the nine parameters of Gross National Happiness.",
+              "zh": "【典範轉移的力量】彼亞克·英格爾斯（Bjarke Ingels）提出了「烏托邦式務實主義」設計思維：在這塊真實的基地、這份真實的預算、這些真實的限制之下，我們如何讓這一小片世界盡可能貼近我們的理想世界？案例包括Copenhill（廢棄物轉能源工廠頂設滑雪坡道），以及不丹吉勒普正念城（Gelephu Mindfulness City）——一座從零開始、以「國民幸福指數」九大參數為基礎設計的全新城市。"
+            },
+            {
+              "en": "Vitali Klitschko, Mayor of Kyiv, closed with: \"Each finger is strong. But if the fingers come together, they will be many times stronger.\" A fitting metaphor about how collaboration can strengthen our work in improving cities.",
+              "zh": "基輔市長克利奇科（Vitali Klitschko）以一句話作結：「每根手指都很強壯。但當手指握在一起，力量將倍增。」這是對協作如何強化城市改善工作的精妙比喻。"
+            }
+          ]
+        },
+        {
+          "title": "The US Is Building More Housing Near Transit, But Not Nearly Enough",
+          "source": "Bloomberg CityLab",
+          "published": "2026-06-10",
+          "url": "https://www.bloomberg.com/news/articles/2026-06-10/these-us-cities-are-succeeding-in-building-housing-near-transit",
+          "author": "Linda Poon",
+          "paragraphs": [
+            {
+              "en": "The principle behind transit-oriented development, or TOD, is so fundamental it might not seem like it needs an acronym. An urban planning term that emerged in the US in the 1980s, TOD calls for housing to be built near public transportation, boosting transit ridership and affordability at the same time.",
+              "zh": "大眾運輸導向發展（Transit-Oriented Development，簡稱TOD）背後的原則如此根本，幾乎讓人覺得不需要縮寫詞來定義它。TOD是1980年代興起於美國的都市規劃術語，主張將住宅建設於公共交通設施附近，藉此同步提升大眾運輸使用率與居住可負擔性。"
+            },
+            {
+              "en": "But in a postwar era of suburban sprawl, highway building and deepening car dependency, centering public transit in the housing conversation was a major departure from the US norm. In recent decades, many state and local governments in the US embraced transit-oriented development policies to encourage denser, more walkable development as a solution to housing shortages, rising home prices and relentless gridlock.",
+              "zh": "然而，在二戰後郊區蔓延、高速公路大規模興建、對汽車依賴日益加深的時代背景下，將大眾運輸置於住宅議題核心，是對美國慣常思維的重大突破。近數十年來，美國許多州政府及地方政府已相繼採納TOD政策，鼓勵更高密度、更適宜步行的開發模式，將其視為解決住房短缺、房價攀升與長期塞車問題的解方之一。"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

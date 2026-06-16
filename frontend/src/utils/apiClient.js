@@ -234,3 +234,27 @@ export async function zoteroFile(attKey) {
     const r = await axios.get(`${BACKEND_BASE}/api/zotero/file/${attKey}`, { responseType: 'blob' });
     return r.data;
 }
+
+// ── Daily Research Digest ───────────────────────────────────────────────────
+// In web mode the digest JSON files are served as Vite public assets at
+// /digests/index.json and /digests/{date}.json — no backend required.
+
+export async function listDigests() {
+    if (!NO_BACKEND) {
+        const r = await axios.get(`${BACKEND_BASE}/api/digests`);
+        return r.data;
+    }
+    const r = await fetch('./digests/index.json');
+    if (!r.ok) return [];
+    return r.json();
+}
+
+export async function getDigest(date) {
+    if (!NO_BACKEND) {
+        const r = await axios.get(`${BACKEND_BASE}/api/digests/${date}`);
+        return r.data;
+    }
+    const r = await fetch(`./digests/${date}.json`);
+    if (!r.ok) throw new Error(`Digest ${date} not found.`);
+    return r.json();
+}

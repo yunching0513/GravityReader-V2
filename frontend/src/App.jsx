@@ -4,6 +4,7 @@ import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
 import ShareCard from './components/ShareCard';
 import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote } from './utils/db';
+import { BookOpen } from 'lucide-react';
 import { useAudioReader } from './utils/audioReader';
 import { splitSentences } from './utils/tts';
 import * as api from './utils/apiClient';
@@ -63,6 +64,11 @@ function App() {
     const currentPageRef = useRef(1);
     const ttsPageRef = useRef(1);     // page currently being read (for auto-advance)
     const pdfDocumentRef = useRef(null);
+
+    // Daily Digest State
+    const [digestList, setDigestList] = useState([]);
+    const [activeDigest, setActiveDigest] = useState(null);
+    const [digestLoading, setDigestLoading] = useState(false);
 
     // Zotero (read-only) State
     const [zoteroAvail, setZoteroAvail] = useState(null); // null = unchecked
@@ -305,6 +311,11 @@ function App() {
         return `${Math.round(n / 1024)} KB`;
     };
 
+    // Load digest list on mount
+    useEffect(() => {
+        api.listDigests().then(setDigestList).catch(() => {});
+    }, []);
+
     // Load Library on Mount
     useEffect(() => {
         loadLibrary();
@@ -444,6 +455,18 @@ function App() {
         } catch (_) {
             setZoteroAvail(false);
         }
+    };
+
+    const openDigest = async (date) => {
+        setDigestLoading(true);
+        try {
+            const d = await api.getDigest(date);
+            setActiveDigest(d);
+            setViewMode('digest');
+            setActiveTab('reading');
+            setIsSidebarOpen(false);
+        } catch (_) {}
+        finally { setDigestLoading(false); }
     };
 
     const openZoteroCollection = async (coll) => {
@@ -613,7 +636,7 @@ function App() {
     };
 
     const isBusy = isLoading || isSummarizing;
-    const isEmpty = !isBusy && !analysisResult && !summaryResult && !error;
+    const isEmpty = !isBusy && !analysisResult && !summaryResult && !error && viewMode !== 'digest';
 
     return (
         <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}`}>
@@ -1028,6 +1051,38 @@ function App() {
                         </div>
                     )}
                 </section>
+
+                {/* 06 每日摘要 */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('digest')}>
+                        <span className="grp">
+                            <span className="num">06</span>
+                            <span className="zh">每日摘要</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'digest' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">Daily Digest · 研究機會</div>
+
+                    {openSection === 'digest' && (
+                        <div className="gr-side-body">
+                            {digestList.length === 0 ? (
+                                <div className="gr-file-empty">尚無摘要 · no digest yet</div>
+                            ) : (
+                                digestList.map(item => (
+                                    <button
+                                        key={item.date}
+                                        className={`gr-side-btn${activeDigest && activeDigest.date === item.date ? ' is-active' : ''}`}
+                                        onClick={() => openDigest(item.date)}
+                                        disabled={digestLoading}
+                                    >
+                                        <span className="zh">{item.date}</span>
+                                        <span className="en"><BookOpen size={11} style={{ verticalAlign: '-1px', marginRight: 4 }} />Research Digest</span>
+                                    </button>
+                                ))
+                            )}
+                        </div>
+                    )}
+                </section>
             </aside>
 
             {/* Left Panel — PDF Reader */}
@@ -1092,12 +1147,16 @@ function App() {
                         <div className="gr-head-title">
                             {activeTab === 'notes'
                                 ? '我的筆記'
-                                : (viewMode === 'summary' ? '全文摘要' : '對譯精讀')}
+                                : viewMode === 'summary' ? '全文摘要'
+                                : viewMode === 'digest' ? '每日摘要'
+                                : '對譯精讀'}
                         </div>
                         <div className="gr-head-sub">
                             {activeTab === 'notes'
                                 ? (currentDocName ? `《${currentDocName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
-                                : (viewMode === 'summary' ? '由 AI 生成的全文摘要。' : '於左側 PDF 中選取文字以進行對譯。')}
+                                : viewMode === 'summary' ? '由 AI 生成的全文摘要。'
+                                : viewMode === 'digest' ? (activeDigest ? `${activeDigest.date} · PhD Research Digest` : '請從側欄選擇摘要')
+                                : '於左側 PDF 中選取文字以進行對譯。'}
                         </div>
                     </div>
 
@@ -1224,6 +1283,59 @@ function App() {
                                 ) : (
                                     <pre className="gr-raw">{JSON.stringify(analysisResult, null, 2)}</pre>
                                 )
+                            )}
+
+                            {/* Digest loading */}
+                            {digestLoading && (
+                                <div className="gr-loading">
+                                    <div className="en">Loading digest</div>
+                                    <div className="gr-bar" />
+                                    <div className="zh">載入每日摘要中</div>
+                                </div>
+                            )}
+
+                            {/* Digest view */}
+                            {!digestLoading && viewMode === 'digest' && activeDigest && (
+                                <div className="gr-digest">
+                                    {activeDigest.sections.map(sec => (
+                                        <div key={sec.id} className="gr-digest-section">
+                                            <div className="gr-digest-sec-title">{sec.title}</div>
+                                            {sec.type === 'opportunities' && sec.items.map((item, i) => (
+                                                <div key={i} className={`gr-digest-opp gr-digest-opp--${item.status}`}>
+                                                    <div className="gr-digest-opp-head">
+                                                        <span className="gr-digest-opp-name">{item.title}</span>
+                                                        <span className={`gr-digest-badge gr-digest-badge--${item.status}`}>
+                                                            {item.status === 'open' ? '✅ 開放' : item.status === 'rolling' ? '♻ 滾動' : item.status === 'upcoming' ? '⏳ 即將' : '⚠ 截止'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="gr-digest-opp-meta">
+                                                        <span>{item.funder}</span>
+                                                        {item.deadline_label && <><span className="gr-digest-sep">·</span>截止：<strong>{item.deadline_label}</strong></>}
+                                                    </div>
+                                                    {item.eligibility && <div className="gr-digest-opp-elig">{item.eligibility}</div>}
+                                                    {item.url && <a className="gr-digest-link" href={item.url} target="_blank" rel="noreferrer">申請 / 詳情 →</a>}
+                                                </div>
+                                            ))}
+                                            {sec.type === 'articles' && sec.items.map((art, i) => (
+                                                <div key={i} className="gr-digest-article">
+                                                    <div className="gr-digest-art-head">
+                                                        <div className="gr-digest-art-title">{art.title}</div>
+                                                        <div className="gr-digest-art-meta">{art.author && `${art.author} · `}{art.source} · {art.published}</div>
+                                                        {art.url && <a className="gr-digest-link" href={art.url} target="_blank" rel="noreferrer">原文 →</a>}
+                                                    </div>
+                                                    {art.paragraphs && art.paragraphs.map((p, j) => (
+                                                        <div key={j} className="gr-entry">
+                                                            <span className="gr-entry-n">{String(j + 1).padStart(2, '0')}</span>
+                                                            <p className="gr-entry-en">{p.en}</p>
+                                                            <div className="gr-entry-rule" />
+                                                            <p className="gr-entry-zh">{p.zh}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ))}
+                                </div>
                             )}
 
                             {/* Empty */}
