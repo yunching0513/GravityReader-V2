@@ -2,15 +2,33 @@ const DB_NAME = 'GravityReaderDB';
 const STORE_NAME = 'files';
 const NOTES_STORE = 'notes';
 const AUDIO_STORE = 'audio';
-const DB_VERSION = 3;
+const TRANSLATION_STORE = 'translations';
+const DB_VERSION = 4;
+
+// Opening IndexedDB is not free, and every helper below used to do it. Hold the
+// one connection open for the session instead (re-opening on the rare version
+// change / close event), so a page of read-aloud lookups is dozens of cheap
+// transactions rather than dozens of database opens.
+let dbPromise = null;
 
 export const initDB = () => {
-    return new Promise((resolve, reject) => {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-        request.onerror = (event) => reject("IndexedDB error: " + event.target.error);
+        request.onerror = (event) => {
+            dbPromise = null;
+            reject("IndexedDB error: " + event.target.error);
+        };
 
-        request.onsuccess = (event) => resolve(event.target.result);
+        request.onsuccess = (event) => {
+            const db = event.target.result;
+            // Drop the cached handle if the connection goes away (another tab
+            // upgrading the schema, or the browser evicting storage).
+            db.onclose = () => { dbPromise = null; };
+            db.onversionchange = () => { dbPromise = null; db.close(); };
+            resolve(db);
+        };
 
         request.onupgradeneeded = (event) => {
             const db = event.target.result;
@@ -28,8 +46,14 @@ export const initDB = () => {
                 const audio = db.createObjectStore(AUDIO_STORE, { keyPath: 'key' });
                 audio.createIndex('fileId', 'fileId', { unique: false });
             }
+            // v4: cached translations, keyed by mode + text hash. Re-selecting a
+            // passage you already read back is then instant and free.
+            if (!db.objectStoreNames.contains(TRANSLATION_STORE)) {
+                db.createObjectStore(TRANSLATION_STORE, { keyPath: 'key' });
+            }
         };
     });
+    return dbPromise;
 };
 
 export const saveFile = async (file) => {
@@ -176,6 +200,30 @@ export const putAudio = async (key, fileId, blob) => {
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([AUDIO_STORE], 'readwrite');
         const request = transaction.objectStore(AUDIO_STORE).put({ key, fileId, blob, createdAt: new Date().getTime() });
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+};
+
+// ── Translation cache ─────────────────────────────────────────────────
+// Selecting the same passage twice (or re-opening a paper you worked through
+// last week) should not cost another Gemini call or another wait.
+
+export const getTranslation = async (key) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([TRANSLATION_STORE], 'readonly');
+        const request = transaction.objectStore(TRANSLATION_STORE).get(key);
+        request.onsuccess = () => resolve(request.result ? request.result.result : null);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const putTranslation = async (key, result) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([TRANSLATION_STORE], 'readwrite');
+        const request = transaction.objectStore(TRANSLATION_STORE).put({ key, result, createdAt: new Date().getTime() });
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
     });

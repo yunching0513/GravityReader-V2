@@ -79,6 +79,7 @@ def get_api_key():
 
 def set_api_key(key):
     _runtime_key[0] = key or None
+    _model_cache.clear()
     _write_config_key(key or "")
 
 
@@ -88,6 +89,55 @@ if not get_api_key():
 # Use a stable alias by default so a retired model version (e.g. the old
 # gemini-2.0-flash) never breaks the app. Override with GEMINI_MODEL if needed.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-flash-latest")
+
+# Reconfiguring the SDK and rebuilding a GenerativeModel on every request is
+# pure overhead — one selection in the reader is one request, and a page of
+# read-aloud is dozens. Build it once per key instead.
+_model_cache = {}
+
+
+def _model():
+    key = get_api_key()
+    if not key:
+        raise HTTPException(
+            status_code=503,
+            detail="尚未設定 Gemini API 金鑰,請在 app 設定中填入。",
+        )
+    if _model_cache.get("key") != key:
+        genai.configure(api_key=key)
+        _model_cache.clear()
+        _model_cache["key"] = key
+        _model_cache["model"] = genai.GenerativeModel(GEMINI_MODEL)
+    return _model_cache["model"]
+
+
+# Constrain the translation response to the exact shape the reader renders, so a
+# stray line of preamble can no longer produce an unparseable result client-side.
+TRANSLATION_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {"en": {"type": "STRING"}, "zh": {"type": "STRING"}},
+        "required": ["en", "zh"],
+    },
+}
+
+def _translation_config():
+    """Structured-output config, or None if the installed SDK is too old for it
+    (`response_schema` landed in google-generativeai 0.7). Probed once at import
+    so an older environment degrades to the prompt-only path instead of 500ing."""
+    cfg = {"response_mime_type": "application/json", "response_schema": TRANSLATION_SCHEMA}
+    try:
+        from google.generativeai.types import generation_types
+
+        generation_types.to_generation_config_dict(cfg)
+        return cfg
+    except Exception as exc:  # pragma: no cover — depends on the installed SDK
+        logger.warning("Structured JSON output unavailable (%s); using prompt-only mode.", exc)
+        return None
+
+
+TRANSLATION_CONFIG = _translation_config()
 
 # Text-to-speech (Phase 1: Gemini cloud TTS for paragraph/page read-aloud).
 GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
@@ -136,10 +186,27 @@ def _list_say_voices():
 app = FastAPI()
 
 # CORS Configuration
+# The backend only ever serves the local app, and it holds the user's Gemini key,
+# so don't leave it open to any page the user happens to have in another tab.
+# GR_ALLOWED_ORIGINS ("*" or a comma-separated list) overrides for dev setups.
+_origins_env = os.getenv("GR_ALLOWED_ORIGINS", "").strip()
+if _origins_env == "*":
+    _allow_origins, _allow_origin_regex = ["*"], None
+elif _origins_env:
+    _allow_origins, _allow_origin_regex = [o.strip() for o in _origins_env.split(",") if o.strip()], None
+else:
+    # Vite dev server, the packaged Electron renderer (file:// → "null"), and any
+    # localhost port the app might be served from.
+    _allow_origins = ["null"]
+    _allow_origin_regex = r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|file://.*)$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origin
-    allow_credentials=True,
+    allow_origins=_allow_origins,
+    allow_origin_regex=_allow_origin_regex,
+    # No cookies or auth headers are used; credentials + "*" is also rejected by
+    # browsers outright, so this was never doing what it looked like it did.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -159,14 +226,9 @@ async def analyze_text(request: AnalyzeRequest):
     if not request.text:
         raise HTTPException(status_code=400, detail="No text provided")
 
-    key = get_api_key()
-    if not key:
-        raise HTTPException(status_code=503, detail="尚未設定 Gemini API 金鑰,請在 app 設定中填入。")
+    model = _model()
 
     try:
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel(GEMINI_MODEL)
-
         instruction = ""
         if request.mode == "paragraph":
             instruction = "Split the text by PARAGRAPHS. Translate each paragraph as a whole unit."
@@ -187,8 +249,11 @@ async def analyze_text(request: AnalyzeRequest):
         {request.text}
         """
         
-        response = model.generate_content(prompt)
-        
+        if TRANSLATION_CONFIG:
+            response = model.generate_content(prompt, generation_config=TRANSLATION_CONFIG)
+        else:
+            response = model.generate_content(prompt)
+
         # Simple cleanup to ensure we get just the JSON part if the model adds markdown
         text_response = response.text
         if text_response.startswith("```json"):
@@ -198,6 +263,8 @@ async def analyze_text(request: AnalyzeRequest):
             
         return text_response.strip()
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error analyzing text: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -209,23 +276,21 @@ async def summarize_text(request: SummarizeRequest):
     if not request.text:
         raise HTTPException(status_code=400, detail="No text provided")
 
-    key = get_api_key()
-    if not key:
-        raise HTTPException(status_code=503, detail="尚未設定 Gemini API 金鑰,請在 app 設定中填入。")
+    model = _model()
 
     try:
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel(GEMINI_MODEL)
         prompt = f"""
         You are a research assistant. Summarize the provided text into approximately {request.length} Traditional Chinese words. Capture the main arguments and conclusions.
-        
+
         Text to summarize:
         {request.text}
         """
-        
+
         response = model.generate_content(prompt)
         return {"summary": response.text}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error summarizing text: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -253,11 +318,15 @@ def save_key(req: KeyRequest):
     key = (req.key or "").strip()
     if not key:
         raise HTTPException(status_code=400, detail="金鑰不可為空。")
-    # Validate by a lightweight authenticated call before saving.
+    # Validate by a lightweight authenticated call before saving. This leaves the
+    # SDK's global client pointed at the candidate key, so drop the cached model
+    # either way — otherwise a rejected key would linger behind a cache entry
+    # still labelled with the previous (working) one.
     try:
         genai.configure(api_key=key)
         next(iter(genai.list_models()))
     except Exception as e:
+        _model_cache.clear()
         raise HTTPException(status_code=400, detail=f"金鑰驗證失敗:{str(e)[:140]}")
     set_api_key(key)
     return {"ok": True, "hasKey": True}

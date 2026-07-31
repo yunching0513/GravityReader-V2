@@ -1,13 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones, Maximize2, Languages, Volume2 } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
+// Bundle the pdf.js worker with the app instead of pulling it from a CDN at
+// runtime: the packaged Electron app then opens PDFs with no network at all,
+// the first page renders without a cross-origin round trip, and the worker can
+// never drift out of version-sync with the pdfjs-dist react-pdf resolves to.
+import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.js?url';
 
-// Critical Worker Fix — use an explicit https scheme so it also resolves under
-// the file:// protocol when running inside the packaged Electron app (a
-// protocol-relative "//unpkg.com" URL would become "file://unpkg.com" there).
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
 const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading }) => {
     const [numPages, setNumPages] = useState(null);
@@ -24,6 +26,16 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
     const commitTimerRef = useRef(null);
     const pageWidthRef = useRef(null); // page width in points (scale 1), for fit-to-width
     const autoFitDoneRef = useRef(false);
+    const textIndexRef = useRef(null);   // memoised search index for the rendered text layer
+    const styledRef = useRef([]);        // spans we tinted last pass (so we only clear those)
+    const highlightTimerRef = useRef(null);
+
+    // The parent re-creates its callbacks on every render. Keep them in refs so
+    // effects below depend only on real state changes — otherwise every keystroke
+    // in the notes pane would re-run the page-change effect (dimming the page and
+    // firing a redundant IndexedDB write).
+    const onPageChangeRef = useRef(onPageChange);
+    onPageChangeRef.current = onPageChange;
 
     const goTo = (n) => setPageNumber((p) => Math.min(Math.max(1, n), numPages || p));
     const prevPage = () => setPageNumber((p) => Math.max(1, p - 1));
@@ -41,14 +53,15 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
 
     // Notify parent of page change
     React.useEffect(() => {
-        if (onPageChange) onPageChange(pageNumber);
+        textIndexRef.current = null; // the old text layer is about to be replaced
+        if (onPageChangeRef.current) onPageChangeRef.current(pageNumber);
         setSel(null);
         // soft fade while the new page renders
         if (docWrapRef.current) {
             docWrapRef.current.style.transition = 'opacity 0.22s ease';
             docWrapRef.current.style.opacity = '0.35';
         }
-    }, [pageNumber, onPageChange]);
+    }, [pageNumber]);
 
     // Let the parent drive the page (read-aloud auto page-turn).
     React.useEffect(() => {
@@ -127,11 +140,12 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
         if (!sel) return;
         const onDown = (e) => { if (!e.target.closest || !e.target.closest('.gr-sel-pop')) setSel(null); };
         const onScroll = () => setSel(null);
+        const scroller = scrollRef.current; // capture: the ref may be null by cleanup time
         window.addEventListener('mousedown', onDown);
-        scrollRef.current && scrollRef.current.addEventListener('scroll', onScroll, { passive: true });
+        scroller && scroller.addEventListener('scroll', onScroll, { passive: true });
         return () => {
             window.removeEventListener('mousedown', onDown);
-            scrollRef.current && scrollRef.current.removeEventListener('scroll', onScroll);
+            scroller && scroller.removeEventListener('scroll', onScroll);
         };
     }, [sel]);
 
@@ -144,94 +158,126 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
     const doTranslate = () => { if (sel) onTextSelect(sel.text); clearSelection(); };
     const doSpeak = () => { if (sel && onReadSelection) onReadSelection(sel.text); clearSelection(); };
 
-    // Apply Highlight Logic
-    const applyHighlight = () => {
-        // No active highlight — clear any leftover highlight (e.g. after stopping
-        // read-aloud or deselecting an entry) instead of leaving it stuck.
-        if (!highlightedText) {
-            document.querySelectorAll('.react-pdf__Page__textContent span').forEach(span => {
-                span.style.backgroundColor = '';
-            });
-            return;
+    // ── Highlighting ──────────────────────────────────────────────────
+    // Read-aloud re-highlights on every spoken sentence, so this runs dozens of
+    // times per page. We build a search index for the rendered text layer once
+    // and reuse it until the layer is replaced (page turn / re-render), which
+    // turns each highlight into a scan of the needle rather than of the page.
+
+    // spans → concatenated page text, a whitespace-stripped copy for matching,
+    // and the map that takes a normalised offset back to the original one.
+    const buildTextIndex = useCallback(() => {
+        const root = scrollRef.current;
+        if (!root) return null;
+        const spans = root.querySelectorAll('.react-pdf__Page__textContent span');
+        if (!spans.length) return null;
+
+        const ranges = [];
+        const norm = [];      // normalised characters
+        const normToOrig = []; // normalised offset → offset in the original text
+        let cursor = 0;
+        for (const el of spans) {
+            const text = el.textContent || '';
+            ranges.push({ start: cursor, end: cursor + text.length, el });
+            for (let i = 0; i < text.length; i++) {
+                const ch = text[i];
+                if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r' && !/\s/.test(ch)) {
+                    norm.push(ch.toLowerCase());
+                    normToOrig.push(cursor + i);
+                }
+            }
+            cursor += text.length;
         }
+        return { ranges, normalized: norm.join(''), normToOrig };
+    }, []);
 
-        // Wait for text layer to render
-        setTimeout(() => {
-            const textSpans = Array.from(document.querySelectorAll('.react-pdf__Page__textContent span'));
-            if (textSpans.length === 0) return;
-
-            // 1. Build full page text and map indices to spans
-            let fullText = '';
-            const spanMap = [];
-
-            textSpans.forEach(span => {
-                span.style.backgroundColor = '';
-                span.style.transition = '';
-                const text = span.textContent;
-                spanMap.push({ start: fullText.length, end: fullText.length + text.length, element: span });
-                fullText += text;
-            });
-
-            // 2. Normalize texts for matching (remove whitespace)
-            const normalize = (str) => str.replace(/\s+/g, '').toLowerCase();
-            const normalizedFullText = normalize(fullText);
-            const normalizedHighlight = normalize(highlightedText);
-            if (normalizedHighlight.length === 0) return;
-
-            let firstHit = null;
-
-            // 3. Find all occurrences of the highlighted text
-            let searchIndex = 0;
-            while (true) {
-                const foundIndex = normalizedFullText.indexOf(normalizedHighlight, searchIndex);
-                if (foundIndex === -1) break;
-                const foundEndIndex = foundIndex + normalizedHighlight.length;
-
-                // 4. Map back to original fullText indices
-                let currentNormalizedIndex = 0;
-                let startOriginalIndex = -1;
-                let endOriginalIndex = -1;
-                for (let i = 0; i < fullText.length; i++) {
-                    if (!/\s/.test(fullText[i])) {
-                        if (currentNormalizedIndex === foundIndex) startOriginalIndex = i;
-                        currentNormalizedIndex++;
-                        if (currentNormalizedIndex === foundEndIndex) { endOriginalIndex = i + 1; break; }
-                    }
-                }
-
-                if (startOriginalIndex !== -1 && endOriginalIndex !== -1) {
-                    spanMap.forEach(item => {
-                        if (item.end > startOriginalIndex && item.start < endOriginalIndex) {
-                            item.element.style.backgroundColor = highlightColor || 'rgba(193, 95, 60, 0.22)';
-                            item.element.style.transition = 'background-color 0.3s';
-                            if (!firstHit) firstHit = item.element;
-                        }
-                    });
-                }
-                searchIndex = foundIndex + 1;
-            }
-
-            // Keep the highlighted source in view: always during read-along, and
-            // on a normal click only when it's off-screen (so it's not jarring).
-            if (firstHit) {
-                const r = firstHit.getBoundingClientRect();
-                const cont = scrollRef.current ? scrollRef.current.getBoundingClientRect() : null;
-                const offscreen = cont && (r.top < cont.top + 8 || r.bottom > cont.bottom - 8);
-                if (autoScroll || offscreen) firstHit.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            }
-        }, 100);
+    // First range whose end is past `pos` (ranges are sorted and contiguous).
+    const firstRangeAfter = (ranges, pos) => {
+        let lo = 0, hi = ranges.length - 1, hit = ranges.length;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (ranges[mid].end > pos) { hit = mid; hi = mid - 1; }
+            else lo = mid + 1;
+        }
+        return hit;
     };
+
+    const clearHighlight = () => {
+        for (const el of styledRef.current) {
+            el.style.backgroundColor = '';
+            el.style.transition = '';
+        }
+        styledRef.current = [];
+    };
+
+    const paintHighlight = useCallback(() => {
+        if (!textIndexRef.current) textIndexRef.current = buildTextIndex();
+        const index = textIndexRef.current;
+        if (!index) return;
+
+        clearHighlight();
+
+        const needle = (highlightedText || '').replace(/\s+/g, '').toLowerCase();
+        if (!needle) return;
+
+        const { ranges, normalized, normToOrig } = index;
+        const color = highlightColor || 'rgba(193, 95, 60, 0.22)';
+        const styled = [];
+        let firstHit = null;
+
+        let from = 0;
+        for (;;) {
+            const hit = normalized.indexOf(needle, from);
+            if (hit === -1) break;
+            const startOrig = normToOrig[hit];
+            const endOrig = normToOrig[hit + needle.length - 1] + 1;
+
+            for (let r = firstRangeAfter(ranges, startOrig); r < ranges.length; r++) {
+                const range = ranges[r];
+                if (range.start >= endOrig) break;
+                range.el.style.backgroundColor = color;
+                range.el.style.transition = 'background-color 0.3s';
+                styled.push(range.el);
+                if (!firstHit) firstHit = range.el;
+            }
+            from = hit + 1; // as before, overlapping occurrences each get tinted
+        }
+        styledRef.current = styled;
+
+        // Keep the highlighted source in view: always during read-along, and
+        // on a normal click only when it's off-screen (so it's not jarring).
+        if (firstHit) {
+            const r = firstHit.getBoundingClientRect();
+            const cont = scrollRef.current ? scrollRef.current.getBoundingClientRect() : null;
+            const offscreen = cont && (r.top < cont.top + 8 || r.bottom > cont.bottom - 8);
+            if (autoScroll || offscreen) firstHit.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+    }, [buildTextIndex, highlightedText, highlightColor, autoScroll]);
+
+    // Clearing needs no text layer, so it happens immediately; painting waits a
+    // beat for react-pdf to finish laying out the spans.
+    const applyHighlight = useCallback(() => {
+        clearTimeout(highlightTimerRef.current);
+        if (!highlightedText) { clearHighlight(); return; }
+        highlightTimerRef.current = setTimeout(paintHighlight, 100);
+    }, [highlightedText, paintHighlight]);
 
     const onRenderSuccess = () => {
         if (docWrapRef.current) docWrapRef.current.style.opacity = '1'; // fade-in finished page
+        textIndexRef.current = null; // a fresh text layer was just mounted
+        styledRef.current = [];
         applyHighlight();
     };
+
+    // A zoom re-renders the text layer, so the memoised index no longer points
+    // at live spans. (Page turns invalidate it in the page-change effect.)
+    React.useEffect(() => { textIndexRef.current = null; }, [scale]);
 
     // Re-apply highlight when page/scale/text changes
     React.useEffect(() => {
         applyHighlight();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [highlightedText, pageNumber, scale, highlightColor]);
+        return () => clearTimeout(highlightTimerRef.current);
+    }, [applyHighlight, pageNumber, scale]);
 
     useEffect(() => { pendingScaleRef.current = scale; }, [scale]);
 
@@ -378,4 +424,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
     );
 };
 
-export default PdfReader;
+// The reader owns the heaviest subtree in the app. With the parent's callbacks
+// now stable, memoising means typing a note or ticking through an audiobook's
+// progress no longer reconciles the whole document pane.
+export default React.memo(PdfReader);

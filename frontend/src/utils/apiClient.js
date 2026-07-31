@@ -22,13 +22,28 @@ const GEMINI_TTS_MODEL = 'models/gemini-2.5-flash-preview-tts';
 
 // ── Gemini REST helpers (web mode) ──────────────────────────────────────────
 
-async function callGemini(model, body, key) {
+// A request that never answers used to hang the reading pane forever (the
+// spinner has no cancel). Bound every call instead.
+const DEFAULT_TIMEOUT_MS = 90000;
+
+async function callGemini(model, body, key, { timeout = DEFAULT_TIMEOUT_MS } = {}) {
     const url = `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${key}`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    let res;
+    try {
+        res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        });
+    } catch (e) {
+        if (e.name === 'AbortError') throw new Error('Gemini 沒有在時限內回應,請再試一次。');
+        throw e;
+    } finally {
+        clearTimeout(timer);
+    }
     if (!res.ok) {
         const text = await res.text().catch(() => '');
         const err = new Error(`Gemini ${res.status}: ${text.slice(0, 200)}`);
@@ -85,6 +100,19 @@ function b64ToBytes(b64) {
 
 // ── Public API: mirrors the backend's endpoints ─────────────────────────────
 
+// Ask Gemini for JSON that already matches the shape the reading pane renders,
+// so a stray sentence of preamble or a missing code fence can't break a
+// translation any more. The fence-stripping below stays as a belt-and-braces
+// fallback for models that ignore the schema.
+const TRANSLATION_SCHEMA = {
+    type: 'ARRAY',
+    items: {
+        type: 'OBJECT',
+        properties: { en: { type: 'STRING' }, zh: { type: 'STRING' } },
+        required: ['en', 'zh'],
+    },
+};
+
 // translate(text, mode) → returns the JSON-string the backend used to return.
 export async function translate(text, mode = 'sentence') {
     if (!NO_BACKEND) {
@@ -108,7 +136,13 @@ zh: The Traditional Chinese translation. DO NOT provide any grammar notes, vocab
 Text to analyze:
 ${text}`;
 
-    const json = await callGemini(GEMINI_MODEL, { contents: [{ parts: [{ text: prompt }] }] }, key);
+    const json = await callGemini(GEMINI_MODEL, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+            responseMimeType: 'application/json',
+            responseSchema: TRANSLATION_SCHEMA,
+        },
+    }, key);
     let out = extractText(json).trim();
     if (out.startsWith('```json')) out = out.slice(7);
     else if (out.startsWith('```')) out = out.slice(3);
@@ -194,7 +228,7 @@ export async function saveKey(key) {
     }
     // Light validation: a generateContent ping with the key.
     try {
-        await callGemini(GEMINI_MODEL, { contents: [{ parts: [{ text: 'ping' }] }] }, k);
+        await callGemini(GEMINI_MODEL, { contents: [{ parts: [{ text: 'ping' }] }] }, k, { timeout: 20000 });
     } catch (e) {
         throw new Error('金鑰驗證失敗:' + (e.message || '').slice(0, 140));
     }

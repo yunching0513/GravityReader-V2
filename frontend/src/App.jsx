@@ -1,12 +1,15 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense, lazy } from 'react';
 import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, Plus, Check, Trash2, Volume2, Headphones, Share2, BookMarked } from 'lucide-react';
 import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
-import ShareCard from './components/ShareCard';
-import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote } from './utils/db';
+import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote, getTranslation, putTranslation } from './utils/db';
 import { BookOpen } from 'lucide-react';
 import { useAudioReader } from './utils/audioReader';
-import { splitSentences } from './utils/tts';
+import { splitSentences, hashText } from './utils/tts';
+
+// The share-card renderer is a few hundred lines of canvas drawing that only
+// matters once you actually export a card — keep it out of the initial bundle.
+const ShareCard = lazy(() => import('./components/ShareCard'));
 import * as api from './utils/apiClient';
 const IS_WEB = api.isWebMode();
 
@@ -16,7 +19,6 @@ const DEFAULT_VOICES = [
 ];
 
 function App() {
-    const [inputText, setInputText] = useState('');
     const [analysisResult, setAnalysisResult] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -27,7 +29,6 @@ function App() {
 
     // Sidebar & Features State
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const [pdfDocument, setPdfDocument] = useState(null);
     const [summaryResult, setSummaryResult] = useState(null);
     const [viewMode, setViewMode] = useState('analysis'); // 'analysis' | 'summary'
     const [translationMode, setTranslationMode] = useState('sentence'); // 'sentence' | 'paragraph'
@@ -108,7 +109,7 @@ function App() {
     // ── Read-aloud wiring ─────────────────────────────────────────────
     // Called by the audio reader as each sentence starts (or null when it ends):
     // highlight the spoken sentence on the PDF and keep it scrolled into view.
-    const handleActiveSentence = (text) => {
+    const handleActiveSentence = useCallback((text) => {
         if (text) {
             setTtsActive(true);
             setHighlightedText(text);
@@ -116,7 +117,7 @@ function App() {
             setTtsActive(false);
             setHighlightedText('');
         }
-    };
+    }, []);
 
     const reader = useAudioReader({
         voice: ttsVoice,
@@ -124,6 +125,11 @@ function App() {
         engine: playEngine,
         onActive: handleActiveSentence,
     });
+    // `reader` carries playback state, so its identity changes on every clip.
+    // Reach it through a ref inside callbacks that are handed to the PDF pane,
+    // so those callbacks stay stable and the reader doesn't reconcile mid-read.
+    const readerRef = useRef(reader);
+    readerRef.current = reader;
 
     // Switch the live read-aloud engine (and reset to that engine's voice).
     const selectPlayEngine = (engine) => {
@@ -194,56 +200,59 @@ function App() {
             .catch(() => {});
     }, []);
 
-    const extractPageText = async (n) => {
+    const extractPageText = useCallback(async (n) => {
         const doc = pdfDocumentRef.current;
         if (!doc) return '';
         const page = await doc.getPage(n);
         const tc = await page.getTextContent();
         return tc.items.map(it => it.str).join(' ');
-    };
+    }, []);
 
     // Pull the next page's sentences when the current page finishes — gives
     // continuous "read on" playback (and skips blank pages).
-    const readNextPage = async () => {
+    const readNextPage = useCallback(async () => {
         const doc = pdfDocumentRef.current;
-        const np = ttsPageRef.current + 1;
-        if (!doc || np > doc.numPages) return null;
-        ttsPageRef.current = np;
-        setRequestedPage(np);
-        const segs = splitSentences(await extractPageText(np));
-        if (!segs.length) return readNextPage();
-        return { segments: segs };
-    };
+        // Blank pages are skipped by looping, not by recursing: a long run of
+        // image-only pages used to grow the call stack one frame per page.
+        for (;;) {
+            const np = ttsPageRef.current + 1;
+            if (!doc || np > doc.numPages) return null;
+            ttsPageRef.current = np;
+            setRequestedPage(np);
+            const segs = splitSentences(await extractPageText(np));
+            if (segs.length) return { segments: segs };
+        }
+    }, [extractPageText]);
 
-    const startReadingFrom = async (pageNo) => {
+    const startReadingFrom = useCallback(async (pageNo) => {
         if (!pdfDocumentRef.current) { alert('請先載入 PDF 文件。'); return; }
         ttsPageRef.current = pageNo;
         setRequestedPage(pageNo);
         const segs = splitSentences(await extractPageText(pageNo));
         if (segs.length) {
-            reader.start({ segments: segs, fileId: currentFileId, getNext: readNextPage });
+            readerRef.current.start({ segments: segs, fileId: currentFileId, getNext: readNextPage });
         } else {
             const next = await readNextPage();
-            if (next) reader.start({ segments: next.segments, fileId: currentFileId, getNext: readNextPage });
+            if (next) readerRef.current.start({ segments: next.segments, fileId: currentFileId, getNext: readNextPage });
             else alert('這份文件沒有可朗讀的文字。');
         }
-    };
+    }, [currentFileId, extractPageText, readNextPage]);
 
-    const handleReadPage = () => {
-        if (ttsActive) { reader.stop(); return; }
+    const handleReadPage = useCallback(() => {
+        if (ttsActive) { readerRef.current.stop(); return; }
         startReadingFrom(currentPageRef.current || 1);
-    };
+    }, [ttsActive, startReadingFrom]);
 
-    const handleReadEntry = (en) => {
+    const handleReadEntry = useCallback((en) => {
         if (!en) return;
-        reader.start({ segments: splitSentences(en), fileId: currentFileId, getNext: null });
-    };
+        readerRef.current.start({ segments: splitSentences(en), fileId: currentFileId, getNext: null });
+    }, [currentFileId]);
 
     // Read aloud an arbitrary text selection (from the PDF selection popup).
-    const handleReadSelection = (text) => {
+    const handleReadSelection = useCallback((text) => {
         if (!text) return;
-        reader.start({ segments: splitSentences(text), fileId: currentFileId, getNext: null });
-    };
+        readerRef.current.start({ segments: splitSentences(text), fileId: currentFileId, getNext: null });
+    }, [currentFileId]);
 
     // ── Whole-book audiobook ──────────────────────────────────────────
     const bookBusy = bookJob && ['extracting', 'running', 'combining'].includes(bookJob.status);
@@ -316,6 +325,12 @@ function App() {
         if (n > 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
         return `${Math.round(n / 1024)} KB`;
     };
+
+    // Stop polling the audiobook job (and any playback) when the app goes away.
+    useEffect(() => () => {
+        clearInterval(bookTimerRef.current);
+        readerRef.current && readerRef.current.stop();
+    }, []);
 
     // Load digest list on mount
     useEffect(() => {
@@ -530,7 +545,7 @@ function App() {
         }
     };
 
-    const handlePageChange = async (page) => {
+    const handlePageChange = useCallback(async (page) => {
         setCurrentPage(page);
         currentPageRef.current = page;
         if (typeof currentFileId === 'number') {
@@ -542,7 +557,7 @@ function App() {
                 console.error("Failed to update page:", err);
             }
         }
-    };
+    }, [currentFileId]);
 
     const toggleSection = (section) => {
         setOpenSection(openSection === section ? null : section);
@@ -582,15 +597,29 @@ function App() {
         };
     }, [isDragging]);
 
-    const handleTextSelect = async (text) => {
-        setInputText(text);
+    // Selections can arrive faster than Gemini answers. Stamp each request and
+    // drop stale replies, so the pane always shows the passage you selected last
+    // rather than whichever call happened to return last.
+    const translateTokenRef = useRef(0);
+
+    const handleTextSelect = useCallback(async (text) => {
+        const token = ++translateTokenRef.current;
         setActiveTab('reading');
         setViewMode('analysis');
         setIsLoading(true);
         setError(null);
         setAnalysisResult(null);
 
+        const cacheKey = `${translationMode}|${text.length}|${hashText(text)}`;
         try {
+            const cached = await getTranslation(cacheKey).catch(() => null);
+            if (translateTokenRef.current !== token) return;
+            if (cached) {
+                setAnalysisResult(cached);
+                setIsLoading(false);
+                return;
+            }
+
             // Call Backend API
             let result = await api.translate(text, translationMode);
             if (typeof result === 'string') {
@@ -600,38 +629,49 @@ function App() {
                     console.error("Failed to parse JSON string", e);
                 }
             }
+            if (translateTokenRef.current !== token) return;
 
             setAnalysisResult(result);
+            if (Array.isArray(result) && result.length) {
+                putTranslation(cacheKey, result).catch(() => {});
+            }
         } catch (err) {
+            if (translateTokenRef.current !== token) return;
             console.error("API Error:", err);
             setError("無法分析文本，請確認後端服務正在運行。");
         } finally {
-            setIsLoading(false);
+            if (translateTokenRef.current === token) setIsLoading(false);
         }
-    };
+    }, [translationMode]);
 
-    const handleDocumentLoad = (pdf) => {
-        setPdfDocument(pdf);
+    const handleDocumentLoad = useCallback((pdf) => {
         pdfDocumentRef.current = pdf;
         setPdfNumPages(pdf.numPages);
         setBookFrom(1);
         setBookTo(pdf.numPages);
-    };
+    }, []);
 
-    const extractPdfText = async () => {
-        if (!pdfDocument) return '';
-        let fullText = '';
-        for (let i = 1; i <= pdfDocument.numPages; i++) {
-            const page = await pdfDocument.getPage(i);
-            const textContent = await page.getTextContent();
-            const pageText = textContent.items.map(item => item.str).join(' ');
-            fullText += pageText + '\n';
+    // Summarising only ever sends the first SUMMARY_CHAR_BUDGET characters, so
+    // stop extracting once we have them — a 400-page thesis used to decode every
+    // page's text layer before throwing 95% of it away.
+    const SUMMARY_CHAR_BUDGET = 30000;
+
+    const extractPdfText = async (maxChars = Infinity) => {
+        const doc = pdfDocumentRef.current;
+        if (!doc) return '';
+        const parts = [];
+        let length = 0;
+        for (let i = 1; i <= doc.numPages && length < maxChars; i++) {
+            const pageText = await extractPageText(i);
+            parts.push(pageText);
+            length += pageText.length + 1;
         }
-        return fullText;
+        const full = parts.join('\n');
+        return Number.isFinite(maxChars) ? full.slice(0, maxChars) : full;
     };
 
     const handleSummarize = async (length) => {
-        if (!pdfDocument) {
+        if (!pdfDocumentRef.current) {
             alert("請先載入 PDF 文件。");
             return;
         }
@@ -639,10 +679,11 @@ function App() {
         setActiveTab('reading');
         setViewMode('summary');
         setSummaryResult(null);
+        setError(null);
 
         try {
-            const text = await extractPdfText();
-            const summary = await api.summarize(text.substring(0, 30000), length);
+            const text = await extractPdfText(SUMMARY_CHAR_BUDGET);
+            const summary = await api.summarize(text, length);
             setSummaryResult(summary);
         } catch (err) {
             console.error("Summarize Error:", err);
@@ -1496,7 +1537,9 @@ function App() {
             </div>
 
             {shareNote && (
-                <ShareCard note={shareNote} docName={currentDocName} onClose={() => setShareNote(null)} />
+                <Suspense fallback={null}>
+                    <ShareCard note={shareNote} docName={currentDocName} onClose={() => setShareNote(null)} />
+                </Suspense>
             )}
         </div>
     );
