@@ -16,9 +16,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+if [ "$(uname -s)" != "Darwin" ]; then
+  echo "✗ This builds the macOS app and must run on a Mac." >&2
+  echo "  For a Windows installer use the 'Build Windows' GitHub Action." >&2
+  exit 1
+fi
+
 echo "▸ [1/5] Building frontend…"
 if [ "${SKIP_FRONTEND:-0}" != "1" ]; then
-  ( cd frontend && npm run build )
+  (
+    cd frontend
+    [ -d node_modules ] || npm install
+    npm run build
+  )
 fi
 
 echo "▸ [2/5] Copying renderer into Electron app…"
@@ -53,3 +63,7 @@ npm run dist
 echo ""
 echo "✅ Done. Artifacts in desktop/release/:"
 ls -1 release/*.dmg release/*.zip 2>/dev/null || true
+echo ""
+echo "To install: open the .dmg and drag「Yun's Reader」to Applications, then run"
+echo "  xattr -dr com.apple.quarantine \"/Applications/Yun's Reader.app\""
+echo "(the app is ad-hoc signed, not notarized, so Gatekeeper quarantines it)"
