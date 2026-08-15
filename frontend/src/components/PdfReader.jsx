@@ -11,7 +11,7 @@ import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.js?url';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
-const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading }) => {
+const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -367,6 +367,10 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
                         </button>
                     </div>
                 )}
+
+                {/* Outside the `file &&` block on purpose: a running focus timer
+                    must stay visible (and stoppable) even with no PDF open. */}
+                {toolbarExtra}
             </div>
 
             <div className="gr-canvas gr-scroll" ref={scrollRef}>

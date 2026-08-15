@@ -2,14 +2,20 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense, laz
 import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, Plus, Check, Trash2, Volume2, Headphones, Share2, BookMarked } from 'lucide-react';
 import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
-import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote, getTranslation, putTranslation } from './utils/db';
-import { BookOpen } from 'lucide-react';
+import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote, getTranslation, putTranslation, addDump, getDumps, isSchemaStale } from './utils/db';
+import { BookOpen, Timer } from 'lucide-react';
 import { useAudioReader } from './utils/audioReader';
 import { splitSentences, hashText } from './utils/tts';
+import { useSetting, useSettings, get as getSetting, setPath as setSettingPath, bump } from './utils/settings';
+import { usePomodoro } from './utils/usePomodoro';
+import { startSession, endSession, togglePause, skipPhase } from './utils/pomodoro';
+import FocusTimer from './components/FocusTimer';
 
-// The share-card renderer is a few hundred lines of canvas drawing that only
-// matters once you actually export a card — keep it out of the initial bundle.
+// Loaded on demand — the share card is canvas drawing you only reach by
+// exporting, and the two flow overlays only mount when they are needed.
 const ShareCard = lazy(() => import('./components/ShareCard'));
+const BreakLock = lazy(() => import('./components/BreakLock'));
+const BrainDump = lazy(() => import('./components/BrainDump'));
 import * as api from './utils/apiClient';
 const IS_WEB = api.isWebMode();
 
@@ -23,16 +29,18 @@ function App() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    // Resizable Layout State
-    const [leftWidth, setLeftWidth] = useState(50); // Percentage
+    // Resizable Layout State. Width is local while dragging — writing through
+    // the settings store on every mousemove would thrash localStorage — and is
+    // committed once on mouse-up.
+    const [leftWidth, setLeftWidth] = useState(() => getSetting('ui.leftWidth', 50));
     const [isDragging, setIsDragging] = useState(false);
 
     // Sidebar & Features State
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [summaryResult, setSummaryResult] = useState(null);
     const [viewMode, setViewMode] = useState('analysis'); // 'analysis' | 'summary'
-    const [translationMode, setTranslationMode] = useState('sentence'); // 'sentence' | 'paragraph'
-    const [customSummaryLength, setCustomSummaryLength] = useState(500);
+    const [translationMode, setTranslationMode] = useSetting('read.translationMode');
+    const [customSummaryLength, setCustomSummaryLength] = useSetting('read.summaryLength');
     const [isSummarizing, setIsSummarizing] = useState(false);
 
     // My Library State
@@ -42,10 +50,10 @@ function App() {
     const [initialPage, setInitialPage] = useState(1);
     const [openSection, setOpenSection] = useState('library'); // 'library' | 'export' | 'summary'
 
-    // Reading preferences
-    const [fontMode, setFontMode] = useState('default'); // 'default' | 'zen'
+    // Reading preferences — persisted, so they survive a reload.
+    const [fontMode, setFontMode] = useSetting('ui.fontMode'); // 'default' | 'zen'
     const [highlightedText, setHighlightedText] = useState('');
-    const [highlightColor, setHighlightColor] = useState('rgba(193, 95, 60, 0.22)'); // 朱 vermilion
+    const [highlightColor, setHighlightColor] = useSetting('tts.highlightColor'); // 朱 vermilion
 
     // Notes State (per-document)
     const [activeTab, setActiveTab] = useState('reading'); // 'reading' | 'notes'
@@ -61,9 +69,9 @@ function App() {
 
     // Read-aloud (TTS) State
     const [ttsVoices, setTtsVoices] = useState(DEFAULT_VOICES);
-    const [ttsVoice, setTtsVoice] = useState('Kore');
-    const [ttsSpeed, setTtsSpeed] = useState(1.0);
-    const [playEngine, setPlayEngine] = useState('gemini'); // live read-aloud engine
+    const [ttsVoice, setTtsVoice] = useSetting('tts.voice');
+    const [ttsSpeed, setTtsSpeed] = useSetting('tts.speed');
+    const [playEngine, setPlayEngine] = useSetting('tts.engine'); // live read-aloud engine
     const [ttsActive, setTtsActive] = useState(false); // a read session is live
     const [currentPage, setCurrentPage] = useState(1);
     const [requestedPage, setRequestedPage] = useState(null); // drives the viewer
@@ -103,6 +111,77 @@ function App() {
     const [bookRangeMode, setBookRangeMode] = useState('all'); // 'all' | 'page' | 'range'
     const [bookFrom, setBookFrom] = useState(1);
     const [bookTo, setBookTo] = useState(1);
+
+    // ── 心流 · Flow state ─────────────────────────────────────────────
+    const settings = useSettings();
+    const flow = settings.flow;
+    const pomo = usePomodoro();
+    const [dumpPrompt, setDumpPrompt] = useState(null); // {mode, docName, page, lastCut} | null
+    const [staleDb, setStaleDb] = useState(false);
+    const lastDumpAtRef = useRef(0);
+
+    // Another window upgraded the IndexedDB schema, so this window's connection
+    // is dead and re-opening at the old version would throw. Ask for a reload
+    // rather than failing every subsequent save in silence.
+    useEffect(() => {
+        const id = setInterval(() => { if (isSchemaStale()) setStaleDb(true); }, 2000);
+        return () => clearInterval(id);
+    }, []);
+
+    // Offer the dump when opening a document, but not every time — being asked
+    // to unload your head twice in ten minutes is itself an interruption.
+    const DUMP_COOLDOWN_MS = 30 * 60 * 1000;
+
+    const maybeOpenDump = useCallback(async (fileId, name) => {
+        if (!getSetting('flow.dumpBeforeStart')) return;
+        if (Date.now() - lastDumpAtRef.current < DUMP_COOLDOWN_MS) return;
+        let lastCut = null;
+        try {
+            const dumps = await getDumps(fileId);
+            lastCut = dumps.filter(d => d.kind === 'cut').sort((a, b) => b.createdAt - a.createdAt)[0] || null;
+        } catch (_) { /* history is a nicety, never block the prompt */ }
+        setDumpPrompt({ mode: 'open', docName: name, page: null, lastCut });
+    }, []);
+
+    const closeDump = useCallback((saved) => {
+        lastDumpAtRef.current = Date.now();
+        setDumpPrompt(null);
+        // Starting the clock is the point of the ritual — but only if the user
+        // actually has the Pomodoro on, and only if one isn't already running.
+        if (saved && getSetting('flow.enabled') && !getSetting('session')) {
+            startSession(currentFileId, getSetting('flow'));
+        }
+    }, [currentFileId]);
+
+    const handleSaveDump = useCallback(async ({ text, nextStep, kind }) => {
+        try {
+            await addDump({ fileId: currentFileId, text, nextStep, kind });
+        } catch (err) {
+            console.error('Failed to save the dump:', err);
+        }
+        closeDump(true);
+    }, [currentFileId, closeDump]);
+
+    const handleSkipDump = useCallback(() => {
+        bump(dumpPrompt?.mode === 'cut' ? 'stats.skips.cut' : 'stats.skips.dump');
+        closeDump(false);
+    }, [dumpPrompt, closeDump]);
+
+    const handleCleanCut = useCallback(() => {
+        setDumpPrompt({
+            mode: 'cut',
+            docName: currentDocName,
+            page: currentPageRef.current,
+            lastCut: null,
+        });
+    }, [currentDocName]);
+
+    const handleSkipBreak = useCallback(() => { skipPhase(getSetting('flow')); }, []);
+
+    const handleStartFocus = useCallback(() => {
+        startSession(currentFileId, getSetting('flow'));
+        setIsSidebarOpen(false);
+    }, [currentFileId]);
 
     // API Configuration
 
@@ -470,6 +549,7 @@ function App() {
                 setCurrentFileId(newId); // Assuming saveFile returns the ID, checking db.js implementation
                 setCurrentDocName(file.name);
                 setInitialPage(1);
+                maybeOpenDump(newId, file.name);
             } catch (err) {
                 console.error("Failed to save file:", err);
                 alert("Failed to save file to library.");
@@ -483,6 +563,7 @@ function App() {
         setCurrentFileId(fileData.id);
         setCurrentDocName(fileData.name);
         setInitialPage(fileData.lastPage || 1);
+        maybeOpenDump(fileData.id, fileData.name);
     };
 
     // Open a Zotero paper's PDF straight into the reader (read-only).
@@ -496,6 +577,7 @@ function App() {
             setCurrentDocName(item.title);
             setInitialPage(1);
             setIsSidebarOpen(false);
+            maybeOpenDump(`zotero:${item.attKey}`, item.title);
         } catch (e) {
             alert('無法開啟此 PDF。');
         } finally {
@@ -577,6 +659,8 @@ function App() {
 
         const handleMouseUp = () => {
             setIsDragging(false);
+            // Persist once, at the end of the gesture — not on every frame.
+            setSettingPath('ui.leftWidth', leftWidth);
         };
 
         if (isDragging) {
@@ -595,7 +679,7 @@ function App() {
             document.body.style.cursor = 'default';
             document.body.style.userSelect = 'auto';
         };
-    }, [isDragging]);
+    }, [isDragging, leftWidth]);
 
     // Selections can arrive faster than Gemini answers. Stamp each request and
     // drop stale replies, so the pane always shows the passage you selected last
@@ -1138,6 +1222,116 @@ function App() {
                     )}
                 </section>
 
+                {/* 07 心流 */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('flow')}>
+                        <span className="grp">
+                            <span className="num">07</span>
+                            <span className="zh">心流專注</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'flow' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">
+                        Flow · {flow.enabled ? `${flow.focusMin}／${flow.breakMin} 分` : '未啟用'}
+                    </div>
+
+                    {openSection === 'flow' && (
+                        <div className="gr-side-body">
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">番茄鐘 · Pomodoro</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button
+                                        className={flow.enabled ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('flow.enabled', true)}
+                                    >
+                                        開啟
+                                    </button>
+                                    <button
+                                        className={!flow.enabled ? 'is-active' : ''}
+                                        onClick={() => { setSettingPath('flow.enabled', false); endSession('disabled'); }}
+                                    >
+                                        關閉
+                                    </button>
+                                </div>
+                            </label>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">專注 · Focus</span>
+                                <div className="gr-num-field">
+                                    <input
+                                        type="number" min="5" max="90" className="gr-input"
+                                        value={flow.focusMin}
+                                        onChange={(e) => setSettingPath('flow.focusMin', parseInt(e.target.value, 10) || 25)}
+                                    />
+                                    <span>分鐘,休息</span>
+                                    <input
+                                        type="number" min="1" max="30" className="gr-input"
+                                        value={flow.breakMin}
+                                        onChange={(e) => setSettingPath('flow.breakMin', parseInt(e.target.value, 10) || 5)}
+                                    />
+                                    <span>分鐘</span>
+                                </div>
+                            </label>
+                            <p className="gr-audio-hint">
+                                25／5 是常見起點,不是定律。用幾週後照你自己的疲勞曲線調。
+                            </p>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">開始前先卸載思緒</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button
+                                        className={flow.dumpBeforeStart ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('flow.dumpBeforeStart', true)}
+                                    >
+                                        要
+                                    </button>
+                                    <button
+                                        className={!flow.dumpBeforeStart ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('flow.dumpBeforeStart', false)}
+                                    >
+                                        不用
+                                    </button>
+                                </div>
+                            </label>
+
+                            {!pomo.running ? (
+                                <button className="gr-side-btn" onClick={handleStartFocus} disabled={!flow.enabled}>
+                                    <span className="zh">
+                                        <Timer size={12} style={{ verticalAlign: '-1px', marginRight: 6 }} />
+                                        開始一個專注區塊
+                                    </span>
+                                    <span className="en">Start focus · {flow.focusMin} min</span>
+                                </button>
+                            ) : (
+                                <button className="gr-side-btn" onClick={() => endSession('stopped')}>
+                                    <span className="zh">結束這次專注</span>
+                                    <span className="en">Stop the timer</span>
+                                </button>
+                            )}
+
+                            <button className="gr-side-btn" onClick={handleCleanCut} disabled={!currentFileId}>
+                                <span className="zh">乾淨切斷 · 存下次起點</span>
+                                <span className="en">Clean cut · save where to resume</span>
+                            </button>
+
+                            <div className="gr-flow-stats">
+                                <div className="gr-flow-stat">
+                                    <span>完成的專注</span><b>{settings.stats.focusCompleted}</b>
+                                </div>
+                                <div className="gr-flow-stat">
+                                    <span>略過休息</span><b>{settings.stats.skips.break}</b>
+                                </div>
+                                <div className="gr-flow-stat">
+                                    <span>略過卸載</span><b>{settings.stats.skips.dump + settings.stats.skips.cut}</b>
+                                </div>
+                            </div>
+                            <p className="gr-audio-hint">
+                                通知無法從 App 內關閉 —— 那是作業系統的權限。專注前請自己開 macOS 專注模式。
+                            </p>
+                        </div>
+                    )}
+                </section>
+
                 {/* 06 每日摘要 */}
                 <section className="gr-side-sec">
                     <button className="gr-side-toggle" onClick={() => toggleSection('digest')}>
@@ -1186,6 +1380,17 @@ function App() {
                     onReadPage={handleReadPage}
                     autoScroll={ttsActive}
                     isReading={ttsActive}
+                    toolbarExtra={pomo.running ? (
+                        <FocusTimer
+                            remaining={pomo.remaining}
+                            progress={pomo.progress}
+                            phase={pomo.session.phase}
+                            cycle={pomo.session.cycle}
+                            paused={pomo.paused}
+                            onToggle={togglePause}
+                            onStop={() => endSession('stopped')}
+                        />
+                    ) : null}
                 />
                 {ttsActive && (
                     <AudioBar
@@ -1540,6 +1745,42 @@ function App() {
                 <Suspense fallback={null}>
                     <ShareCard note={shareNote} docName={currentDocName} onClose={() => setShareNote(null)} />
                 </Suspense>
+            )}
+
+            {dumpPrompt && (
+                <Suspense fallback={null}>
+                    <BrainDump
+                        mode={dumpPrompt.mode}
+                        docName={dumpPrompt.docName}
+                        page={dumpPrompt.page}
+                        lastCut={dumpPrompt.lastCut}
+                        seconds={dumpPrompt.mode === 'cut' ? 30 : 60}
+                        holdMs={flow.holdMs}
+                        skipCount={dumpPrompt.mode === 'cut' ? settings.stats.skips.cut : settings.stats.skips.dump}
+                        onSave={handleSaveDump}
+                        onSkip={handleSkipDump}
+                    />
+                </Suspense>
+            )}
+
+            {pomo.onBreak && (
+                <Suspense fallback={null}>
+                    <BreakLock
+                        remaining={pomo.remaining}
+                        progress={pomo.progress}
+                        isLong={pomo.session.phase === 'longBreak'}
+                        cycle={pomo.session.cycle}
+                        skipCount={settings.stats.skips.break}
+                        holdMs={flow.holdMs}
+                        onSkip={handleSkipBreak}
+                    />
+                </Suspense>
+            )}
+
+            {staleDb && (
+                <div className="gr-stale">
+                    資料庫已由另一個視窗更新 —— 請重新載入這個視窗(⌘R)。
+                </div>
             )}
         </div>
     );

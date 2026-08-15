@@ -3,7 +3,16 @@ const STORE_NAME = 'files';
 const NOTES_STORE = 'notes';
 const AUDIO_STORE = 'audio';
 const TRANSLATION_STORE = 'translations';
-const DB_VERSION = 4;
+const SESSIONS_STORE = 'sessions';
+const DUMPS_STORE = 'dumps';
+const ASSETS_STORE = 'assets';
+const DB_VERSION = 5;
+
+// Set when another window upgrades the schema under us. Once this is true every
+// further open() with our (now older) version would fail with VersionError, so
+// callers should stop and ask the user to reload rather than retry forever.
+let staleSchema = false;
+export const isSchemaStale = () => staleSchema;
 
 // Opening IndexedDB is not free, and every helper below used to do it. Hold the
 // one connection open for the session instead (re-opening on the rare version
@@ -26,7 +35,14 @@ export const initDB = () => {
             // Drop the cached handle if the connection goes away (another tab
             // upgrading the schema, or the browser evicting storage).
             db.onclose = () => { dbPromise = null; };
-            db.onversionchange = () => { dbPromise = null; db.close(); };
+            // Another window opened a newer schema. Our connection must close,
+            // and re-opening at our old version would throw VersionError — so
+            // flag it and let the UI ask for a reload instead.
+            db.onversionchange = () => {
+                staleSchema = true;
+                dbPromise = null;
+                db.close();
+            };
             resolve(db);
         };
 
@@ -50,6 +66,20 @@ export const initDB = () => {
             // passage you already read back is then instant and free.
             if (!db.objectStoreNames.contains(TRANSLATION_STORE)) {
                 db.createObjectStore(TRANSLATION_STORE, { keyPath: 'key' });
+            }
+            // v5: focus-session history, thought dumps, and local ambience audio.
+            if (!db.objectStoreNames.contains(SESSIONS_STORE)) {
+                const sessions = db.createObjectStore(SESSIONS_STORE, { keyPath: 'id' });
+                sessions.createIndex('startedAt', 'startedAt', { unique: false });
+                sessions.createIndex('fileId', 'fileId', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(DUMPS_STORE)) {
+                const dumps = db.createObjectStore(DUMPS_STORE, { keyPath: 'id', autoIncrement: true });
+                dumps.createIndex('createdAt', 'createdAt', { unique: false });
+                dumps.createIndex('fileId', 'fileId', { unique: false });
+            }
+            if (!db.objectStoreNames.contains(ASSETS_STORE)) {
+                db.createObjectStore(ASSETS_STORE, { keyPath: 'key' });
             }
         };
     });
@@ -225,6 +255,91 @@ export const putTranslation = async (key, result) => {
         const transaction = db.transaction([TRANSLATION_STORE], 'readwrite');
         const request = transaction.objectStore(TRANSLATION_STORE).put({ key, result, createdAt: new Date().getTime() });
         request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+};
+
+// ── Focus sessions ────────────────────────────────────────────────────
+// One record per focus block, completed or abandoned. Time-series data that
+// nobody needs at first paint — which is exactly why it lives here and the
+// live timer state lives in settings.js instead.
+
+export const addSession = async (session) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SESSIONS_STORE], 'readwrite');
+        const request = transaction.objectStore(SESSIONS_STORE).put(session);
+        request.onsuccess = () => resolve(session);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const listSessions = async (sinceTs = 0) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SESSIONS_STORE], 'readonly');
+        const index = transaction.objectStore(SESSIONS_STORE).index('startedAt');
+        const request = index.getAll(IDBKeyRange.lowerBound(sinceTs));
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+// ── Thought dumps (思緒卸載盒) ─────────────────────────────────────────
+
+export const addDump = async ({ fileId = null, text = '', nextStep = '', kind = 'open' }) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([DUMPS_STORE], 'readwrite');
+        const dump = { fileId, text, nextStep, kind, createdAt: new Date().getTime() };
+        const request = transaction.objectStore(DUMPS_STORE).add(dump);
+        request.onsuccess = () => resolve({ ...dump, id: request.result });
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const getDumps = async (fileId) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([DUMPS_STORE], 'readonly');
+        const store = transaction.objectStore(DUMPS_STORE);
+        const request = fileId == null
+            ? store.getAll()
+            : store.index('fileId').getAll(fileId);
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const deleteDump = async (id) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([DUMPS_STORE], 'readwrite');
+        const request = transaction.objectStore(DUMPS_STORE).delete(id);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+};
+
+// ── Local assets (user-supplied ambience audio) ───────────────────────
+
+export const putAsset = async (key, blob, meta = {}) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ASSETS_STORE], 'readwrite');
+        const request = transaction.objectStore(ASSETS_STORE)
+            .put({ key, blob, ...meta, createdAt: new Date().getTime() });
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const getAsset = async (key) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ASSETS_STORE], 'readonly');
+        const request = transaction.objectStore(ASSETS_STORE).get(key);
+        request.onsuccess = () => resolve(request.result || null);
         request.onerror = () => reject(request.error);
     });
 };

@@ -1629,3 +1629,377 @@ body::before {
   color: var(--indigo);
   border-color: var(--indigo-m);
 }
+
+/* ════════ FLOW · 心流 ════════ */
+
+/* ── shared modal shell (generalised from the share card) ── */
+.gr-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 92;
+  background: rgba(31, 29, 25, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  animation: gr-fade 0.18s ease;
+}
+.gr-modal {
+  background: var(--paper);
+  border: 1px solid var(--stone);
+  box-shadow: 0 24px 80px rgba(31, 29, 25, 0.3);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.gr-modal:focus { outline: none; }
+.gr-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--stone);
+}
+.gr-modal-title {
+  font-family: var(--zh-serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+.gr-modal-x {
+  background: none; border: none; cursor: pointer;
+  color: var(--ash); display: flex;
+  transition: color 0.2s ease;
+}
+.gr-modal-x:hover { color: var(--indigo); }
+.gr-modal-body { padding: 22px; overflow-y: auto; }
+.gr-modal-foot { padding: 14px 22px; border-top: 1px solid var(--stone); }
+
+/* ── press-and-hold to skip ── */
+.gr-hold-wrap { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.gr-hold {
+  position: relative;
+  overflow: hidden;
+  padding: 10px 20px;
+  border: 1px solid var(--silver);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+  touch-action: none;          /* pointer capture owns the gesture */
+  user-select: none;
+}
+.gr-hold:hover, .gr-hold.is-holding { border-color: var(--indigo); }
+.gr-hold-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--hold-progress, 0) * 100%);
+  background: var(--indigo-m);
+  pointer-events: none;
+}
+.gr-hold-text { position: relative; display: block; }
+.gr-hold-text .zh {
+  display: block;
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--graphite);
+}
+.gr-hold-text .en {
+  display: block;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-top: 4px;
+}
+.gr-hold-count {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+}
+
+/* ── thought dump ── */
+.gr-dump-lead .zh {
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--graphite);
+  letter-spacing: 0.03em;
+}
+.gr-dump-meta {
+  font-family: var(--en-serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--ash);
+  margin-top: 6px;
+}
+.gr-dump-last {
+  border-left: 2px solid var(--indigo-m);
+  padding: 10px 0 10px 14px;
+  margin: 16px 0;
+  background: var(--indigo-l);
+}
+.gr-dump-last-label {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 6px;
+}
+.gr-dump-last-next {
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  color: var(--ink);
+  line-height: 1.8;
+}
+.gr-dump-last-text {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--graphite);
+  line-height: 1.8;
+  margin-top: 4px;
+}
+.gr-dump-field { display: block; margin-top: 18px; }
+.gr-dump-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 7px;
+}
+.gr-dump-input {
+  width: 100%;
+  background: var(--paper-2);
+  border: 1px solid var(--silver);
+  padding: 11px 13px;
+  font-family: var(--zh-sans);
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--ink);
+  resize: vertical;
+}
+.gr-dump-input:focus { outline: none; border-color: var(--indigo); }
+.gr-app.is-zen .gr-dump-input { font-family: var(--zen); }
+.gr-dump-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+}
+.gr-dump-timer {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+}
+.gr-dump-timer b { color: var(--indigo); font-weight: 500; }
+.gr-dump-skip {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dotted var(--silver);
+  display: flex;
+  justify-content: center;
+}
+
+/* ── break lock ── */
+.gr-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  /* Fogged paper, not a black scrim: resting, not punished. */
+  background: rgba(241, 239, 233, 0.96);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: gr-fade 0.5s ease;
+}
+.gr-lock-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 40px;
+  text-align: center;
+}
+.gr-lock-kicker {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.gr-lock-cycle { margin-left: 12px; color: var(--silver); }
+
+.gr-breathe {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  display: grid;
+  place-items: center;
+}
+.gr-breathe-ring,
+.gr-breathe-core {
+  position: absolute;
+  border-radius: 50%;
+  /* ~5 breaths/min — coherent breathing. Pure CSS: zero JS per frame. */
+  animation: gr-breathe 12s ease-in-out infinite;
+}
+.gr-breathe-ring {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--indigo-m);
+}
+.gr-breathe-core {
+  width: 46%;
+  height: 46%;
+  background: var(--indigo-l);
+  border: 1px solid var(--indigo);
+  animation-delay: 0s;
+}
+@keyframes gr-breathe {
+  0%   { transform: scale(0.82); opacity: 0.55; }
+  42%  { transform: scale(1.14); opacity: 1; }
+  58%  { transform: scale(1.14); opacity: 1; }
+  100% { transform: scale(0.82); opacity: 0.55; }
+}
+.gr-breathe-cue {
+  position: relative;
+  height: 18px;
+  width: 100%;
+}
+.gr-cue {
+  position: absolute;
+  inset: 0;
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  letter-spacing: 0.4em;
+  color: var(--ash);
+  animation: gr-cue 12s ease-in-out infinite;
+}
+.gr-cue--out { animation-delay: -6s; }
+@keyframes gr-cue {
+  0%, 42%  { opacity: 1; }
+  50%, 92% { opacity: 0; }
+  100%     { opacity: 1; }
+}
+
+.gr-lock-clock {
+  font-family: var(--mono);
+  font-size: 34px;
+  font-weight: 300;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+}
+.gr-lock-bar {
+  width: 260px;
+  height: 3px;
+  background: var(--mist);
+  overflow: hidden;
+}
+.gr-lock-fill {
+  height: 100%;
+  background: var(--indigo);
+  transition: width 0.5s linear;
+}
+.gr-lock-note {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--ash);
+  letter-spacing: 0.04em;
+  max-width: 300px;
+}
+.gr-lock-skip { margin-top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gr-breathe-ring, .gr-breathe-core, .gr-cue { animation: none; }
+  .gr-cue--out { opacity: 0; }
+  .gr-lock { animation: none; }
+}
+
+/* ── focus timer chip ── */
+.gr-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 10px;
+  border: 1px solid var(--stone);
+  background: var(--paper-2);
+  margin-left: auto;   /* far right of the bar, with or without page controls */
+  flex: 0 0 auto;
+}
+.gr-timer.is-paused { opacity: 0.6; }
+.gr-timer-ring {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: conic-gradient(var(--indigo) calc(var(--timer-progress, 0) * 360deg), var(--mist) 0);
+}
+.gr-timer-clock {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+}
+.gr-timer-phase {
+  font-family: var(--zh-sans);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ash);
+}
+.gr-timer-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--ash);
+  display: flex;
+  transition: color 0.2s ease;
+}
+.gr-timer-btn:hover { color: var(--indigo); }
+
+/* ── sidebar: flow section ── */
+.gr-flow-stat {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ash);
+  padding: 7px 0;
+  border-bottom: 1px dotted var(--silver);
+}
+.gr-flow-stat b { color: var(--ink); font-weight: 500; }
+.gr-flow-stats { margin-top: 14px; }
+.gr-num-field { display: flex; align-items: center; gap: 8px; }
+.gr-num-field .gr-input { width: 68px; text-align: center; }
+.gr-num-field span {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--ash);
+}
+
+/* stale-schema notice (another window upgraded the database) */
+.gr-stale {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 210;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 11px 18px;
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  box-shadow: 0 6px 24px rgba(31, 29, 25, 0.28);
+}
