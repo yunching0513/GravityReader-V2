@@ -1419,36 +1419,20 @@ function App() {
             <div className="gr-analysis" style={{ width: `${100 - leftWidth}%` }}>
                 {/* Header */}
                 <div className="gr-analysis-head">
-                    <div className="gr-head-main">
-                        <div className="gr-tabs">
-                            <button
-                                className={`gr-tab ${activeTab === 'reading' ? 'is-active' : ''}`}
-                                onClick={() => setActiveTab('reading')}
-                            >
-                                精讀<em>Reading</em>
-                            </button>
-                            <button
-                                className={`gr-tab ${activeTab === 'notes' ? 'is-active' : ''}`}
-                                onClick={() => setActiveTab('notes')}
-                            >
-                                筆記<em>Notes</em>
-                                {notes.length > 0 && <span className="gr-tab-count">{notes.length}</span>}
-                            </button>
-                        </div>
-                        <div className="gr-head-title">
-                            {activeTab === 'notes'
-                                ? '我的筆記'
-                                : viewMode === 'summary' ? '全文摘要'
-                                : viewMode === 'digest' ? '每日摘要'
-                                : '對譯精讀'}
-                        </div>
-                        <div className="gr-head-sub">
-                            {activeTab === 'notes'
-                                ? (currentDocName ? `《${currentDocName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
-                                : viewMode === 'summary' ? '由 AI 生成的全文摘要。'
-                                : viewMode === 'digest' ? (activeDigest ? `${activeDigest.date} · PhD Research Digest` : '請從側欄選擇摘要')
-                                : '於左側 PDF 中選取文字以進行對譯。'}
-                        </div>
+                    <div className="gr-tabs">
+                        <button
+                            className={`gr-tab ${activeTab === 'reading' ? 'is-active' : ''}`}
+                            onClick={() => setActiveTab('reading')}
+                        >
+                            精讀<em>Reading</em>
+                        </button>
+                        <button
+                            className={`gr-tab ${activeTab === 'notes' ? 'is-active' : ''}`}
+                            onClick={() => setActiveTab('notes')}
+                        >
+                            筆記<em>Notes</em>
+                            {notes.length > 0 && <span className="gr-tab-count">{notes.length}</span>}
+                        </button>
                     </div>
 
                     <div className="gr-head-tools">
@@ -1502,6 +1486,23 @@ function App() {
 
                 {/* Body */}
                 <div className="gr-analysis-body gr-scroll">
+                    <div className="gr-body-head">
+                        <div className="gr-head-title">
+                            {activeTab === 'notes'
+                                ? '我的筆記'
+                                : viewMode === 'summary' ? '全文摘要'
+                                : viewMode === 'digest' ? '每日摘要'
+                                : '對譯精讀'}
+                        </div>
+                        <div className="gr-head-sub">
+                            {activeTab === 'notes'
+                                ? (currentDocName ? `《${currentDocName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
+                                : viewMode === 'summary' ? '由 AI 生成的全文摘要。'
+                                : viewMode === 'digest' ? (activeDigest ? `${activeDigest.date} · PhD Research Digest` : '請從側欄選擇摘要')
+                                : '於左側 PDF 中選取文字以進行對譯。'}
+                        </div>
+                    </div>
+
                     {hasKey === false && (
                         <div className="gr-key-banner">
                             <div>

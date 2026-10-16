@@ -369,7 +369,7 @@ body::before {
   padding: 12px 22px 12px 66px;
   border-bottom: 1px solid var(--stone);
   background: var(--paper);
-  min-height: 64px;
+  min-height: 64px;   /* paired with .gr-analysis-head — keep the two in step */
 }
 .gr-brand { display: inline-flex; align-items: baseline; gap: 11px; }
 .gr-brand .mark {
@@ -513,14 +513,18 @@ body::before {
   background: var(--paper);
   overflow: hidden;
 }
+/* Same 64px as .gr-reader-bar, so both panes' content starts on one line.
+   min-height rather than height: dragging the resizer to an extreme still
+   wraps instead of clipping the tools. */
 .gr-analysis-head {
-  padding: 24px 36px 18px;
+  padding: 0 36px;
   border-bottom: 1px solid var(--stone);
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   justify-content: space-between;
   gap: 24px;
   flex-wrap: wrap;
+  min-height: 64px;
 }
 .gr-head-kicker {
   font-family: var(--en-serif);
@@ -530,6 +534,9 @@ body::before {
   letter-spacing: 0.02em;
   margin-bottom: 5px;
 }
+/* The page heading, now the first thing inside the scrolling body. */
+.gr-body-head { margin-bottom: 26px; }
+
 .gr-head-title {
   font-family: var(--zh-serif);
   font-size: 30px;
@@ -547,7 +554,7 @@ body::before {
   margin-top: 9px;
 }
 
-.gr-head-tools { display: flex; align-items: center; gap: 22px; }
+.gr-head-tools { display: flex; align-items: center; gap: 22px; flex: 0 0 auto; }
 .gr-tool-group { display: flex; align-items: center; gap: 9px; }
 .gr-tool-label {
   font-family: var(--mono);
@@ -779,14 +786,13 @@ body::before {
 }
 
 /* ════════ TABS (Reading / Notes) ════════ */
-.gr-head-main { display: flex; flex-direction: column; }
-.gr-tabs { display: flex; gap: 24px; margin-bottom: 12px; }
+.gr-tabs { display: flex; align-items: flex-end; gap: 24px; }
 .gr-tab {
   position: relative;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0 0 8px;
+  padding: 0 0 18px;
   font-family: var(--zh-serif);
   font-size: 15px;
   font-weight: 500;
@@ -1492,7 +1498,8 @@ body::before {
 }
 
 @media (max-width: 820px) {
-  .gr-analysis-head { flex-direction: column; align-items: flex-start; }
+  .gr-analysis-head { padding: 0 20px; }
+  .gr-head-tools { gap: 14px; }
   .gr-head-title { font-size: 24px; }
 }
 
