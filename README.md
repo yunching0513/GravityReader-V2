@@ -23,3 +23,11 @@ A full-stack application with FastAPI backend and React (Vite) frontend for PDF 
 - Split-view PDF Reader
 - Text selection triggers Gemini 1.5 Flash analysis
 - Cyberpunk/Antigravity theme
+
+
+---
+
+## 著作權 Copyright
+
+© 2025–2026　吳昀慶 Yun-Ching Wu
+授權條款見 [`LICENSE`](LICENSE)　詳細聲明見 [`COPYRIGHT.md`](COPYRIGHT.md)
