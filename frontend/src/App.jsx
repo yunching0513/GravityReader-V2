@@ -10,6 +10,8 @@ import { useSetting, useSettings, get as getSetting, setPath as setSettingPath, 
 import { usePomodoro } from './utils/usePomodoro';
 import { startSession, endSession, togglePause, skipPhase } from './utils/pomodoro';
 import FocusTimer from './components/FocusTimer';
+import * as flowAudio from './utils/flowAudio';
+import { getAsset, putAsset } from './utils/db';
 
 // Loaded on demand — the share card is canvas drawing you only reach by
 // exporting, and the two flow overlays only mount when they are needed.
@@ -117,6 +119,9 @@ function App() {
     const flow = settings.flow;
     const pomo = usePomodoro();
     const [dumpPrompt, setDumpPrompt] = useState(null); // {mode, docName, page, lastCut} | null
+    const [guideOn, setGuideOn] = useSetting('flow.guideEnabled', false);
+    const [metaphor, setMetaphor] = useState(null);   // {loading, result, error, text}
+    const metaphorTokenRef = useRef(0);
     const [staleDb, setStaleDb] = useState(false);
     const lastDumpAtRef = useRef(0);
 
@@ -178,6 +183,63 @@ function App() {
 
     const handleSkipBreak = useCallback(() => { skipPhase(getSetting('flow')); }, []);
 
+    // Lower the difficulty of a stuck passage. Same stale-guard idiom as
+    // handleTextSelect, with its own token, and the same translations store —
+    // its keys are already namespaced by mode, so "metaphor|..." just slots in.
+    const handleExplain = useCallback(async (text) => {
+        if (!text) return;
+        const token = ++metaphorTokenRef.current;
+        setActiveTab('reading');
+        setMetaphor({ loading: true, text });
+
+        const cacheKey = `metaphor|${text.length}|${hashText(text)}`;
+        try {
+            const cached = await getTranslation(cacheKey).catch(() => null);
+            if (metaphorTokenRef.current !== token) return;
+            if (cached) { setMetaphor({ result: cached, text }); return; }
+
+            let result = await api.metaphor(text);
+            if (typeof result === 'string') {
+                try { result = JSON.parse(result); } catch (e) { console.error('metaphor parse failed', e); }
+            }
+            if (metaphorTokenRef.current !== token) return;
+            setMetaphor({ result, text });
+            if (result && result.metaphor_zh) putTranslation(cacheKey, result).catch(() => {});
+        } catch (err) {
+            if (metaphorTokenRef.current !== token) return;
+            console.error('Metaphor error:', err);
+            setMetaphor({ error: err.message || '降維失敗', text });
+        }
+    }, []);
+
+    const applyAmbience = useCallback(async (kind) => {
+        setSettingPath('audio.ambience', kind);
+        let blob = null;
+        if (kind === 'file') {
+            const asset = await getAsset('ambience').catch(() => null);
+            if (!asset) { alert('還沒選音檔。先按「選擇音檔」。'); setSettingPath('audio.ambience', 'off'); return; }
+            blob = asset.blob;
+        }
+        const a = getSetting('audio');
+        await flowAudio.setAmbience({ kind, volume: a.ambienceVol, pulseHz: a.pulseHz, blob });
+    }, []);
+
+    const applyBinaural = useCallback(async (mode) => {
+        setSettingPath('audio.binaural', mode);
+        const a = getSetting('audio');
+        await flowAudio.setBinaural({
+            mode, carrierHz: a.carrierHz, beatHz: a.beatHz, volume: a.binauralVol,
+        });
+    }, []);
+
+    const pickAmbienceFile = useCallback(async (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        await putAsset('ambience', f, { name: f.name });
+        setSettingPath('audio.ambienceAsset', f.name);
+        await applyAmbience('file');
+    }, [applyAmbience]);
+
     const handleStartFocus = useCallback(() => {
         startSession(currentFileId, getSetting('flow'));
         setIsSidebarOpen(false);
@@ -209,6 +271,16 @@ function App() {
     // so those callbacks stay stable and the reader doesn't reconcile mid-read.
     const readerRef = useRef(reader);
     readerRef.current = reader;
+
+    // Duck the ambience under read-aloud rather than routing the speech through
+    // the audio graph. `isPlaying` stays true across the gap between clips, so
+    // the bed doesn't pump between sentences, and `isLoading` covers the first
+    // clip's latency so the duck is already in place before the voice arrives.
+    useEffect(() => {
+        if (!settings.audio.duckOnTts) { flowAudio.duck(false); return; }
+        flowAudio.duck(reader.isPlaying || reader.isLoading, settings.audio.duckRatio);
+    }, [reader.isPlaying, reader.isLoading, settings.audio.duckOnTts, settings.audio.duckRatio]);
+
 
     // Switch the live read-aloud engine (and reset to that engine's voice).
     const selectPlayEngine = (engine) => {
@@ -1328,6 +1400,148 @@ function App() {
                             <p className="gr-audio-hint">
                                 通知無法從 App 內關閉 —— 那是作業系統的權限。專注前請自己開 macOS 專注模式。
                             </p>
+
+                            <div className="gr-book">
+                                <div className="gr-book-head">閱讀導引 · Pace guide</div>
+
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">導引光標</span>
+                                    <div className="gr-seg gr-seg--full">
+                                        <button className={guideOn ? 'is-active' : ''} onClick={() => setGuideOn(true)}>開啟</button>
+                                        <button className={!guideOn ? 'is-active' : ''} onClick={() => setGuideOn(false)}>關閉</button>
+                                    </div>
+                                </label>
+
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">樣式</span>
+                                    <div className="gr-seg gr-seg--full">
+                                        <button className={flow.guideMode === 'line' ? 'is-active' : ''}
+                                            onClick={() => setSettingPath('flow.guideMode', 'line')}>整行</button>
+                                        <button className={flow.guideMode === 'word' ? 'is-active' : ''}
+                                            onClick={() => setSettingPath('flow.guideMode', 'word')}>逐字</button>
+                                    </div>
+                                </label>
+
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">基線速度 · WPM</span>
+                                    <div className="gr-num-field">
+                                        <input type="number" min="60" max="900" className="gr-input"
+                                            value={flow.wpm}
+                                            onChange={(e) => setSettingPath('flow.wpm', parseInt(e.target.value, 10) || 250)} />
+                                        <span>字/分</span>
+                                    </div>
+                                </label>
+
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">
+                                        挑戰倍率 · {Math.round(flow.challenge * 100)}%
+                                        {'\u2003'}≈ {Math.round(flow.wpm * flow.challenge)} wpm
+                                    </span>
+                                    <input type="range" className="gr-range" min="100" max="120" step="1"
+                                        value={Math.round(flow.challenge * 100)}
+                                        onChange={(e) => setSettingPath('flow.challenge', parseInt(e.target.value, 10) / 100)} />
+                                </label>
+                                <p className="gr-audio-hint">
+                                    「比你的速度快 4%」出自心流的通俗論述,不是實驗常數。這條滑桿就是讓你自己找那個數字。
+                                </p>
+                                <p className="gr-audio-hint">朗讀進行時光標會自動停,兩者會互相打架。</p>
+                            </div>
+                        </div>
+                    )}
+                </section>
+
+                {/* 08 音場 */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('sound')}>
+                        <span className="grp">
+                            <span className="num">08</span>
+                            <span className="zh">音場</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'sound' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">
+                        Soundfield · {settings.audio.ambience === 'off' && settings.audio.binaural === 'off' ? '靜音' : '播放中'}
+                    </div>
+
+                    {openSection === 'sound' && (
+                        <div className="gr-side-body">
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">環境音 · Ambience</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button className={settings.audio.ambience === 'off' ? 'is-active' : ''} onClick={() => applyAmbience('off')}>關</button>
+                                    <button className={settings.audio.ambience === 'pink' ? 'is-active' : ''} onClick={() => applyAmbience('pink')}>粉紅</button>
+                                    <button className={settings.audio.ambience === 'brown' ? 'is-active' : ''} onClick={() => applyAmbience('brown')}>棕色</button>
+                                    <button className={settings.audio.ambience === 'file' ? 'is-active' : ''} onClick={() => applyAmbience('file')}>音檔</button>
+                                </div>
+                            </label>
+
+                            <label className="gr-upload gr-upload--slim">
+                                <Upload size={14} />
+                                <span className="zh">{settings.audio.ambienceAsset || '選擇音檔'}</span>
+                                <span className="en">your own track · loops</span>
+                                <input type="file" accept="audio/*" onChange={pickAmbienceFile} style={{ display: 'none' }} />
+                            </label>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">環境音量 · {Math.round(settings.audio.ambienceVol * 100)}%</span>
+                                <input type="range" className="gr-range" min="0" max="100"
+                                    value={Math.round(settings.audio.ambienceVol * 100)}
+                                    onChange={(e) => {
+                                        const v = parseInt(e.target.value, 10) / 100;
+                                        setSettingPath('audio.ambienceVol', v);
+                                        flowAudio.setAmbienceVolume(v);
+                                    }} />
+                            </label>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">
+                                    脈動 · {settings.audio.pulseHz > 0 ? `${settings.audio.pulseHz} Hz` : '無'}
+                                </span>
+                                <input type="range" className="gr-range" min="0" max="20"
+                                    value={settings.audio.pulseHz}
+                                    onChange={(e) => setSettingPath('audio.pulseHz', parseInt(e.target.value, 10))}
+                                    onMouseUp={() => applyAmbience(settings.audio.ambience)} />
+                            </label>
+
+                            <div className="gr-book">
+                                <div className="gr-book-head">雙耳節拍 · Binaural</div>
+                                <div className="gr-seg gr-seg--full">
+                                    <button className={settings.audio.binaural === 'off' ? 'is-active' : ''} onClick={() => applyBinaural('off')}>關</button>
+                                    <button className={settings.audio.binaural === 'theta' ? 'is-active' : ''} onClick={() => applyBinaural('theta')}>Theta 6Hz</button>
+                                    <button className={settings.audio.binaural === 'alpha' ? 'is-active' : ''} onClick={() => applyBinaural('alpha')}>Alpha 10Hz</button>
+                                </div>
+
+                                <label className="gr-audio-field" style={{ marginTop: 14 }}>
+                                    <span className="gr-audio-field-label">音量 · {Math.round(settings.audio.binauralVol * 100)}%</span>
+                                    <input type="range" className="gr-range" min="0" max="25"
+                                        value={Math.round(settings.audio.binauralVol * 100)}
+                                        onChange={(e) => {
+                                            const v = parseInt(e.target.value, 10) / 100;
+                                            setSettingPath('audio.binauralVol', v);
+                                            flowAudio.setBinauralVolume(v);
+                                        }} />
+                                </label>
+
+                                <p className="gr-audio-hint">
+                                    左右耳播放相差 6Hz(或 10Hz)的純音。<b>必須戴耳機</b>,喇叭聽不到拍頻。
+                                    這是它實際做的事;至於能不能提升專注,研究結果偏弱且不一致。
+                                </p>
+                            </div>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">朗讀時自動壓低</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button className={settings.audio.duckOnTts ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('audio.duckOnTts', true)}>要</button>
+                                    <button className={!settings.audio.duckOnTts ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('audio.duckOnTts', false)}>不用</button>
+                                </div>
+                            </label>
+
+                            <button className="gr-side-btn" onClick={() => { flowAudio.stopAll(); setSettingPath('audio.ambience', 'off'); setSettingPath('audio.binaural', 'off'); }}>
+                                <span className="zh">全部靜音</span>
+                                <span className="en">Stop all sound</span>
+                            </button>
                         </div>
                     )}
                 </section>
@@ -1370,6 +1584,7 @@ function App() {
                 <PdfReader
                     onTextSelect={handleTextSelect}
                     onReadSelection={handleReadSelection}
+                    onExplain={handleExplain}
                     onDocumentLoad={handleDocumentLoad}
                     highlightedText={highlightedText}
                     highlightColor={highlightColor}
@@ -1380,6 +1595,12 @@ function App() {
                     onReadPage={handleReadPage}
                     autoScroll={ttsActive}
                     isReading={ttsActive}
+                    guide={{
+                        enabled: guideOn,
+                        wpm: flow.wpm,
+                        challenge: flow.challenge,
+                        mode: flow.guideMode,
+                    }}
                     toolbarExtra={pomo.running ? (
                         <FocusTimer
                             remaining={pomo.remaining}
@@ -1522,6 +1743,46 @@ function App() {
                                     <div className="en">{isSummarizing ? 'Synthesizing synopsis' : 'Reading the passage'}</div>
                                     <div className="gr-bar" />
                                     <div className="zh">{isSummarizing ? '正在凝練摘要' : '正在對譯文本'}</div>
+                                </div>
+                            )}
+
+                            {/* Concept metaphor */}
+                            {metaphor && (
+                                <div className="gr-meta">
+                                    <div className="gr-meta-head">
+                                        <span className="gr-meta-kicker">降維 · Metaphor</span>
+                                        <button className="gr-meta-x" onClick={() => setMetaphor(null)} title="關閉">
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                    <p className="gr-meta-src">{metaphor.text}</p>
+                                    {metaphor.loading && <div className="gr-meta-wait">正在找一個日常的說法⋯⋯</div>}
+                                    {metaphor.error && <div className="gr-meta-err">{metaphor.error}</div>}
+                                    {metaphor.result && (
+                                        <>
+                                            <p className="gr-meta-main">{metaphor.result.metaphor_zh}</p>
+                                            {metaphor.result.plain_zh && (
+                                                <p className="gr-meta-plain">{metaphor.result.plain_zh}</p>
+                                            )}
+                                            {Array.isArray(metaphor.result.mapping) && metaphor.result.mapping.length > 0 && (
+                                                <div className="gr-meta-map">
+                                                    {metaphor.result.mapping.map((m, i) => (
+                                                        <div key={i} className="gr-meta-row">
+                                                            <span className="f">{m.from}</span>
+                                                            <span className="a">→</span>
+                                                            <span className="t">{m.to}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {metaphor.result.caution_zh && (
+                                                <div className="gr-meta-caution">
+                                                    <span className="lbl">這個比喻在哪裡會失效</span>
+                                                    {metaphor.result.caution_zh}
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
                             )}
 

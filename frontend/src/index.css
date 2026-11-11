@@ -2010,3 +2010,162 @@ body::before {
   letter-spacing: 0.06em;
   box-shadow: 0 6px 24px rgba(31, 29, 25, 0.28);
 }
+
+/* ════════ READING GUIDE ════════ */
+/* Mounted inside .react-pdf__Page, so these coordinates are page-local and
+   scale with the page. pointer-events: none keeps text selection untouched. */
+.gr-guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  z-index: 2;
+}
+.gr-guide-band,
+.gr-guide-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+.gr-guide-band {
+  /* multiply so it darkens the paper rather than washing it out */
+  mix-blend-mode: multiply;
+  /* Tint only the part of the line already covered, strongest right at the
+     cursor. A gradient fixed to the band would be darkest at the line's end,
+     which pulls the eye ahead of where you should be reading. */
+  background: linear-gradient(
+    90deg,
+    var(--indigo-l) 0%,
+    var(--indigo-m) calc(var(--guide-frac, 0) * 100%),
+    transparent calc(var(--guide-frac, 0) * 100% + 1.5%)
+  );
+}
+.gr-guide-edge {
+  width: 2px;
+  background: var(--indigo);
+  opacity: 0.85;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gr-guide { transition: none; }
+}
+
+/* ════════ METAPHOR + SOUND CONTROLS ════════ */
+.gr-meta {
+  border: 1px solid var(--stone);
+  border-left: 2px solid var(--indigo);
+  background: var(--paper-2);
+  padding: 18px 20px;
+  margin-bottom: 26px;
+  animation: gr-fade 0.3s ease;
+}
+.gr-meta-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.gr-meta-kicker {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--indigo);
+}
+.gr-meta-x {
+  background: none; border: none; cursor: pointer; color: var(--ash); display: flex;
+  transition: color 0.2s ease;
+}
+.gr-meta-x:hover { color: var(--indigo); }
+.gr-meta-src {
+  font-family: var(--en-serif);
+  font-size: 13px;
+  color: var(--ash);
+  line-height: 1.7;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px dotted var(--silver);
+}
+.gr-meta-wait, .gr-meta-err {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--ash);
+  letter-spacing: 0.04em;
+}
+.gr-meta-err { color: var(--indigo-d); }
+.gr-meta-main {
+  font-family: var(--zh-serif);
+  font-size: 16px;
+  line-height: 2;
+  color: var(--ink);
+  letter-spacing: 0.03em;
+}
+.gr-app.is-zen .gr-meta-main { font-family: var(--zen); font-weight: 500; }
+.gr-meta-plain {
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  line-height: 1.95;
+  color: var(--graphite);
+  margin-top: 10px;
+}
+.gr-app.is-zen .gr-meta-plain { font-family: var(--zen); }
+.gr-meta-map { margin-top: 14px; }
+.gr-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--graphite);
+  padding: 4px 0;
+}
+.gr-meta-row .a { color: var(--indigo); font-family: var(--mono); }
+.gr-meta-row .f { color: var(--ash); }
+.gr-meta-caution {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dotted var(--silver);
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--graphite);
+}
+.gr-meta-caution .lbl {
+  display: block;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 5px;
+}
+
+/* sliders — square, to match everything else */
+.gr-range {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: var(--mist);
+  outline: none;
+  margin-top: 4px;
+}
+.gr-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  background: var(--indigo);
+  cursor: pointer;
+  border: none;
+}
+.gr-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  background: var(--indigo);
+  cursor: pointer;
+  border: none;
+  border-radius: 0;
+}
+.gr-upload--slim { padding: 11px 14px; margin-bottom: 14px; }

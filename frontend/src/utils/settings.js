@@ -38,6 +38,7 @@ export const DEFAULTS = Object.freeze({
         enabled: false,
         wpm: 250,
         challenge: 1.04,
+        guideEnabled: false,
         guideMode: 'line',      // 'line' | 'word'
         focusMin: 25,
         breakMin: 5,
