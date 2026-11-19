@@ -3,7 +3,8 @@ name: Build macOS
 # Builds the macOS installer (.dmg) so you can install the app without setting
 # up Python, Node and PyInstaller on your Mac. PyInstaller can't cross-compile,
 # so each architecture needs a runner of that architecture:
-#   macos-14 → Apple silicon (arm64)   macos-13 → Intel (x64)
+#   macos-15 → Apple silicon (arm64)   macos-13 → Intel (x64)
+# (macos-14 was dropped: its jobs got cancelled within a second, no runner.)
 #
 # Apple silicon is built by default. Intel is opt-in because macos-13 runners
 # are being retired and this repo can't currently schedule one — a job asking
@@ -45,7 +46,7 @@ jobs:
     steps:
       - id: pick
         run: |
-          ARM='{"runner":"macos-14","arch":"arm64","label":"Apple-silicon"}'
+          ARM='{"runner":"macos-15","arch":"arm64","label":"Apple-silicon"}'
           INTEL='{"runner":"macos-13","arch":"x64","label":"Intel"}'
           if [ "${{ inputs.intel }}" = "true" ]; then
             echo "include=[$ARM,$INTEL]" >> "$GITHUB_OUTPUT"
