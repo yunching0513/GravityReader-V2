@@ -3,7 +3,7 @@ import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, P
 import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
 import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote, getTranslation, putTranslation, addDump, getDumps, isSchemaStale } from './utils/db';
-import { BookOpen, Timer } from 'lucide-react';
+import { BookOpen, Timer, FileDown, Network, Link2 } from 'lucide-react';
 import { useAudioReader } from './utils/audioReader';
 import { splitSentences, hashText } from './utils/tts';
 import { useSetting, useSettings, get as getSetting, setPath as setSettingPath, bump } from './utils/settings';
@@ -11,7 +11,8 @@ import { usePomodoro } from './utils/usePomodoro';
 import { startSession, endSession, togglePause, skipPhase } from './utils/pomodoro';
 import FocusTimer from './components/FocusTimer';
 import * as flowAudio from './utils/flowAudio';
-import { getAsset, putAsset } from './utils/db';
+import { getAsset, putAsset, patchNote } from './utils/db';
+import { renderNote, noteFilename, newGrId, sourceTitle, linkTarget } from './utils/noteMarkdown';
 
 // Loaded on demand — the share card is canvas drawing you only reach by
 // exporting, and the two flow overlays only mount when they are needed.
@@ -20,6 +21,9 @@ const BreakLock = lazy(() => import('./components/BreakLock'));
 const BrainDump = lazy(() => import('./components/BrainDump'));
 import * as api from './utils/apiClient';
 const IS_WEB = api.isWebMode();
+
+// Starting points for the pretend-play lens; any free-text persona works too.
+const PERSONA_PRESETS = ['你的指導教授', '十年後的自己', '完全外行的人', '這段文字當年的讀者'];
 
 const DEFAULT_VOICES = [
     { id: 'Kore', label: 'Kore · 沉穩女聲' },
@@ -519,9 +523,10 @@ function App() {
     const handleAddNote = async () => {
         const text = noteDraft.trim();
         if (!text || !currentFileId) return;
-        await addNote({ fileId: currentFileId, text, source: 'manual' });
+        const saved = await addNote({ fileId: currentFileId, text, source: 'manual', page: currentPageRef.current });
         setNoteDraft('');
-        refreshNotes();
+        await refreshNotes();
+        if (getSetting('vault.sync') && !IS_WEB) writeNoteToVault(saved);
     };
 
     const handleCaptureEntry = async (en, zh) => {
@@ -529,16 +534,142 @@ function App() {
             alert("請先從書庫開啟一份文件，才能擷取為筆記。");
             return;
         }
-        await addNote({ fileId: currentFileId, en, zh, source: 'reading' });
+        const saved = await addNote({ fileId: currentFileId, en, zh, source: 'reading', page: currentPageRef.current });
         setJustCaptured(en);
         setTimeout(() => setJustCaptured(null), 1200);
-        refreshNotes();
+        await refreshNotes();
+        if (getSetting('vault.sync') && !IS_WEB) writeNoteToVault(saved);
     };
 
     const handleDeleteNote = async (id) => {
         await deleteNote(id);
         refreshNotes();
     };
+
+    // ── 聯想筆記 · Obsidian ───────────────────────────────────────────
+    const [vaultInfo, setVaultInfo] = useState(null);   // {available, vault, root, noteCount}
+    const [assoc, setAssoc] = useState(null);           // {noteId, loading, items, fallback, reason, error}
+    const [vaultBusy, setVaultBusy] = useState(null);   // id of the note being written
+
+    // Only ask for the note count once reading is switched on — counting means
+    // indexing, and indexing reads every note in the vault.
+    const refreshVault = useCallback(async () => {
+        if (IS_WEB) { setVaultInfo({ available: false }); return; }
+        try {
+            setVaultInfo(await api.vaultStatus(getSetting('vault.folder'), getSetting('vault.associativeEnabled')));
+        } catch (_) {
+            setVaultInfo({ available: false });
+        }
+    }, []);
+    useEffect(() => { refreshVault(); }, [refreshVault]);
+
+    const enableAssociative = useCallback(() => {
+        const where = vaultInfo && vaultInfo.vault ? vaultInfo.vault : '(未偵測到)';
+        const yes = window.confirm(
+            '聯想功能會讀取你整個 Obsidian vault 的筆記(標題、標籤、前 400 字),'
+            + '在本機找出可能的連結。\n\n'
+            + `vault:${where}\n\n`
+            + '送到 Gemini 的,只有候選筆記的標題、標籤跟前 200 字。完整內文從不送出。\n\n'
+            + '要開啟嗎?',
+        );
+        if (!yes) return;
+        setSettingPath('vault.associativeEnabled', true, { flush: true });
+        refreshVault();
+    }, [vaultInfo, refreshVault]);
+
+    // One renderer (noteMarkdown.js) for both builds: desktop sends it to the
+    // backend, which checks ownership and writes it; the browser build
+    // downloads the same text.
+    const writeNoteToVault = useCallback(async (note) => {
+        const grId = note.grId || newGrId();
+        const markdown = renderNote({
+            grId, en: note.en, zh: note.zh, text: note.text, page: note.page,
+            docName: currentDocName, createdAt: note.createdAt, links: note.links || [],
+        });
+        setVaultBusy(note.id);
+        try {
+            const r = await api.vaultWriteNote({
+                markdown,
+                filename: noteFilename(note),
+                gr_id: grId,
+                source: currentDocName ? sourceTitle(currentDocName) : '',
+                page: note.page || null,
+                folder: getSetting('vault.folder'),
+                path: note.vaultPath || null,
+            });
+            await patchNote(note.id, r.downloaded ? { grId } : { grId, vaultPath: r.path });
+            await refreshNotes();
+            return r;
+        } catch (err) {
+            alert('寫入 Obsidian 失敗:' + ((err && err.response && err.response.data && err.response.data.detail) || err.message));
+            return null;
+        } finally {
+            setVaultBusy(null);
+        }
+    }, [currentDocName]);
+
+    const findAssociations = useCallback(async (note) => {
+        const text = [note.text, note.zh, note.en].filter(Boolean).join('\n');
+        setAssoc({ noteId: note.id, loading: true });
+        try {
+            const r = await api.vaultAssociate({
+                text,
+                tags: [],
+                excludeSource: currentDocName ? sourceTitle(currentDocName) : '',
+            });
+            setAssoc({ noteId: note.id, items: r.associations || [], fallback: r.fallback, reason: r.reason });
+        } catch (err) {
+            setAssoc({ noteId: note.id, error: (err && err.response && err.response.data && err.response.data.detail) || err.message });
+        }
+    }, [currentDocName]);
+
+    const acceptAssociation = useCallback(async (note, item) => {
+        const target = linkTarget(item.path);
+        const links = [...(note.links || [])];
+        if (links.some((l) => l.target === target)) return;
+        links.push({ target, reason: item.reason_zh || item.bridge_zh || '' });
+        const next = await patchNote(note.id, { links });
+        await refreshNotes();
+        // Already in the vault? Rewrite it there too, so the link is real.
+        if (next.vaultPath) await writeNoteToVault(next);
+        setAssoc((a) => (a && a.noteId === note.id
+            ? { ...a, items: a.items.map((i) => (i.path === item.path ? { ...i, added: true } : i)) }
+            : a));
+    }, [writeNoteToVault]);
+
+    // ── 角色濾鏡 · Pretend-play ───────────────────────────────────────
+    const [persona, setPersona] = useSetting('read.persona');
+    const [pretendState, setPretendState] = useState(null); // {loading, result, error, text, persona}
+    const pretendTokenRef = useRef(0);
+
+    const handlePretend = useCallback(async (text, who) => {
+        const p = String(who || getSetting('read.persona') || '').trim();
+        if (!text || !p) return;
+        const token = ++pretendTokenRef.current;
+        setActiveTab('reading');
+        setPretendState({ loading: true, text, persona: p });
+
+        const cacheKey = `pretend:${p}|${text.length}|${hashText(text)}`;
+        try {
+            const cached = await getTranslation(cacheKey).catch(() => null);
+            if (pretendTokenRef.current !== token) return;
+            if (cached) { setPretendState({ result: cached, text, persona: p }); return; }
+
+            let result = await api.pretend(text, p);
+            if (typeof result === 'string') {
+                try { result = JSON.parse(result); } catch (e) { console.error('pretend parse failed', e); }
+            }
+            if (pretendTokenRef.current !== token) return;
+            setPretendState({ result, text, persona: p });
+            if (result && result.reading_zh) putTranslation(cacheKey, result).catch(() => {});
+        } catch (err) {
+            if (pretendTokenRef.current !== token) return;
+            setPretendState({
+                error: (err && err.response && err.response.data && err.response.data.detail) || err.message || '角色濾鏡失敗',
+                text, persona: p,
+            });
+        }
+    }, []);
 
     // ── Shared phrasebook (片語本) ───────────────────────────────────────
     const refreshGlossary = async () => {
@@ -1546,6 +1677,67 @@ function App() {
                     )}
                 </section>
 
+                {/* 09 聯想筆記 — desktop only: the vault is on disk */}
+                {!IS_WEB && (
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => { toggleSection('vault'); refreshVault(); }}>
+                        <span className="grp">
+                            <span className="num">09</span>
+                            <span className="zh">聯想筆記</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'vault' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">
+                        Obsidian · {vaultInfo && vaultInfo.available ? '已連線' : '找不到 vault'}
+                    </div>
+
+                    {openSection === 'vault' && (
+                        <div className="gr-side-body">
+                            {vaultInfo && vaultInfo.available ? (
+                                <div className="gr-key-status is-ok gr-vault-path" title={vaultInfo.vault}>
+                                    {vaultInfo.vault}
+                                    {typeof vaultInfo.noteCount === 'number' && ` · ${vaultInfo.noteCount} 則`}
+                                </div>
+                            ) : (
+                                <div className="gr-key-status is-none">
+                                    找不到 Obsidian vault。請先在 Obsidian 開一個 vault。
+                                </div>
+                            )}
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">寫入 · 新筆記同步到 Obsidian</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button className={settings.vault.sync ? 'is-active' : ''}
+                                        disabled={!(vaultInfo && vaultInfo.available)}
+                                        onClick={() => setSettingPath('vault.sync', true)}>開啟</button>
+                                    <button className={!settings.vault.sync ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('vault.sync', false)}>關閉</button>
+                                </div>
+                            </label>
+                            <p className="gr-audio-hint">
+                                寫到 <b>{settings.vault.folder}/</b>。每個念頭一則筆記,每份文獻一則索引。
+                                只會修改 App 自己建立的檔案 —— 你手寫的筆記就算同名也不會被動。
+                            </p>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">讀取 · 遠距聯想</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button className={settings.vault.associativeEnabled ? 'is-active' : ''}
+                                        disabled={!(vaultInfo && vaultInfo.available)}
+                                        onClick={() => { if (!settings.vault.associativeEnabled) enableAssociative(); }}>開啟</button>
+                                    <button className={!settings.vault.associativeEnabled ? 'is-active' : ''}
+                                        onClick={() => { setSettingPath('vault.associativeEnabled', false); refreshVault(); }}>關閉</button>
+                                </div>
+                            </label>
+                            <p className="gr-audio-hint">
+                                開啟後會在本機讀你的 vault 找連結。送到 Gemini 的只有候選筆記的<b>標題、標籤、前 200 字</b>,完整內文從不送出。
+                                刻意跳過最明顯的相似筆記 —— 那些你自己就想得到。
+                            </p>
+                        </div>
+                    )}
+                </section>
+                )}
+
                 {/* 06 每日摘要 */}
                 <section className="gr-side-sec">
                     <button className="gr-side-toggle" onClick={() => toggleSection('digest')}>
@@ -1585,6 +1777,7 @@ function App() {
                     onTextSelect={handleTextSelect}
                     onReadSelection={handleReadSelection}
                     onExplain={handleExplain}
+                    onPretend={handlePretend}
                     onDocumentLoad={handleDocumentLoad}
                     highlightedText={highlightedText}
                     highlightColor={highlightColor}
@@ -1743,6 +1936,63 @@ function App() {
                                     <div className="en">{isSummarizing ? 'Synthesizing synopsis' : 'Reading the passage'}</div>
                                     <div className="gr-bar" />
                                     <div className="zh">{isSummarizing ? '正在凝練摘要' : '正在對譯文本'}</div>
+                                </div>
+                            )}
+
+                            {/* Pretend-play lens */}
+                            {pretendState && (
+                                <div className="gr-meta gr-pretend">
+                                    <div className="gr-meta-head">
+                                        <span className="gr-meta-kicker">角色濾鏡 · Pretend play</span>
+                                        <button className="gr-meta-x" onClick={() => setPretendState(null)} title="關閉">
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                    <div className="gr-pretend-who">
+                                        <span className="lbl">以</span>
+                                        <select
+                                            className="gr-input gr-pretend-pick"
+                                            value={PERSONA_PRESETS.includes(pretendState.persona) ? pretendState.persona : '__custom'}
+                                            onChange={(e) => {
+                                                if (e.target.value === '__custom') return;
+                                                setPersona(e.target.value);
+                                                handlePretend(pretendState.text, e.target.value);
+                                            }}
+                                        >
+                                            {PERSONA_PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
+                                            <option value="__custom">自訂⋯⋯</option>
+                                        </select>
+                                        <input
+                                            className="gr-input gr-pretend-custom"
+                                            placeholder="或寫一個人:1848 年的巴黎工人"
+                                            defaultValue={PERSONA_PRESETS.includes(pretendState.persona) ? '' : pretendState.persona}
+                                            onKeyDown={(e) => {
+                                                const v = e.currentTarget.value.trim();
+                                                if (e.key === 'Enter' && v) { setPersona(v); handlePretend(pretendState.text, v); }
+                                            }}
+                                        />
+                                        <span className="lbl">的眼睛讀</span>
+                                    </div>
+                                    <p className="gr-meta-src">{pretendState.text}</p>
+                                    {pretendState.loading && <div className="gr-meta-wait">正在換一雙眼睛⋯⋯</div>}
+                                    {pretendState.error && <div className="gr-meta-err">{pretendState.error}</div>}
+                                    {pretendState.result && (
+                                        <>
+                                            <p className="gr-meta-main">{pretendState.result.reading_zh}</p>
+                                            {pretendState.result.notices_zh && (
+                                                <div className="gr-meta-caution">
+                                                    <span className="lbl">他會注意到、而你會略過的</span>
+                                                    {pretendState.result.notices_zh}
+                                                </div>
+                                            )}
+                                            {pretendState.result.question_zh && (
+                                                <div className="gr-meta-caution">
+                                                    <span className="lbl">他會問的問題</span>
+                                                    {pretendState.result.question_zh}
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
                             )}
 
@@ -1969,7 +2219,25 @@ function App() {
                                                 <div className="gr-note-head">
                                                     <span className="gr-note-time">{fmtTime(n.createdAt)}</span>
                                                     {n.source === 'reading' && <span className="gr-note-tag">對譯</span>}
+                                                    {n.vaultPath && <span className="gr-note-tag gr-note-tag--vault">Obsidian</span>}
                                                     <span className="gr-note-acts">
+                                                        <button
+                                                            className="gr-note-act"
+                                                            onClick={() => writeNoteToVault(n)}
+                                                            disabled={vaultBusy === n.id}
+                                                            title={IS_WEB ? '下載成 Obsidian .md' : (n.vaultPath ? '重新寫進 Obsidian' : '寫進 Obsidian')}
+                                                        >
+                                                            <FileDown size={13} />
+                                                        </button>
+                                                        {!IS_WEB && vaultInfo && vaultInfo.available && settings.vault.associativeEnabled && (
+                                                            <button
+                                                                className="gr-note-act"
+                                                                onClick={() => findAssociations(n)}
+                                                                title="找遠距聯想"
+                                                            >
+                                                                <Network size={13} />
+                                                            </button>
+                                                        )}
                                                         <button
                                                             className="gr-note-act"
                                                             onClick={() => setShareNote(n)}
@@ -1993,6 +2261,52 @@ function App() {
                                                     </div>
                                                 )}
                                                 {n.text && <p className="gr-note-text">{n.text}</p>}
+                                                {Array.isArray(n.links) && n.links.length > 0 && (
+                                                    <div className="gr-note-links">
+                                                        {n.links.map((l) => (
+                                                            <span key={l.target} className="gr-note-link" title={l.reason || ''}>
+                                                                <Link2 size={11} /> {l.target}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                {assoc && assoc.noteId === n.id && (
+                                                    <div className="gr-assoc">
+                                                        <div className="gr-assoc-head">
+                                                            <span>遠距聯想 · Distant links</span>
+                                                            <button className="gr-meta-x" onClick={() => setAssoc(null)} title="關閉"><X size={13} /></button>
+                                                        </div>
+                                                        {assoc.loading && <div className="gr-meta-wait">在你的 vault 裡找意外的連結⋯⋯</div>}
+                                                        {assoc.error && <div className="gr-meta-err">{assoc.error}</div>}
+                                                        {assoc.items && assoc.items.length === 0 && (
+                                                            <div className="gr-meta-wait">這則筆記在 vault 裡找不到夠遠又成立的連結。</div>
+                                                        )}
+                                                        {assoc.fallback && assoc.items && assoc.items.length > 0 && (
+                                                            <div className="gr-assoc-note">
+                                                                {assoc.reason === 'no-key'
+                                                                    ? '沒有 Gemini 金鑰:以下是本機比對出的候選,沒有附理由。'
+                                                                    : '這次只拿到本機比對的候選,沒有附理由。'}
+                                                            </div>
+                                                        )}
+                                                        {(assoc.items || []).map((it) => (
+                                                            <div key={it.path} className="gr-assoc-item">
+                                                                <div className="gr-assoc-title">
+                                                                    {it.title}
+                                                                    {it.dormant && <span className="gr-assoc-dormant">久未翻閱</span>}
+                                                                </div>
+                                                                {it.reason_zh && <p className="gr-assoc-why">{it.reason_zh}</p>}
+                                                                {it.bridge_zh && <p className="gr-assoc-bridge">橋:{it.bridge_zh}</p>}
+                                                                <button
+                                                                    className="gr-btn"
+                                                                    disabled={it.added}
+                                                                    onClick={() => acceptAssociation(n, it)}
+                                                                >
+                                                                    {it.added ? '已連結' : `連結 [[${linkTarget(it.path)}]]`}
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>

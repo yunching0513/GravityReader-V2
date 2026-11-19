@@ -172,22 +172,18 @@ const METAPHOR_SCHEMA = {
 };
 
 // Returns the JSON string, matching translate()'s shape.
-export async function metaphor(text, persona = '') {
+export async function metaphor(text) {
     if (!NO_BACKEND) {
-        const r = await axios.post(`${BACKEND_BASE}/api/metaphor`, { text, persona });
+        const r = await axios.post(`${BACKEND_BASE}/api/metaphor`, { text });
         return r.data;
     }
     const key = getStoredKey();
     if (!key) throw Object.assign(new Error('尚未設定 Gemini API 金鑰,請到設定填入。'), { status: 503 });
 
-    const lens = (persona || '').trim();
-    const personaLine = lens
-        ? `Read the passage as ${lens} would, and let that shape the metaphor.\n`
-        : '';
     const prompt = `You are helping a researcher who is stuck on a difficult passage.
 Lower the difficulty without lowering the content.
 
-${personaLine}Reply in Traditional Chinese (Taiwan) with these fields:
+Reply in Traditional Chinese (Taiwan) with these fields:
 metaphor_zh: an everyday metaphor for the core idea. Concrete, from ordinary life.
 plain_zh: the same idea restated plainly, no jargon.
 mapping: which part of the metaphor stands for which part of the idea.
@@ -202,6 +198,48 @@ ${text}`;
             responseMimeType: 'application/json',
             responseSchema: METAPHOR_SCHEMA,
         },
+    }, key);
+    let out = extractText(json).trim();
+    if (out.startsWith('```json')) out = out.slice(7);
+    else if (out.startsWith('```')) out = out.slice(3);
+    if (out.endsWith('```')) out = out.slice(0, -3);
+    return out.trim();
+}
+
+// Role-play reading (演化假裝遊戲濾鏡): how a given person would read the
+// passage, what they'd notice that you'd walk past, and what they'd ask.
+const PRETEND_SCHEMA = {
+    type: 'OBJECT',
+    properties: {
+        reading_zh: { type: 'STRING' },
+        notices_zh: { type: 'STRING' },
+        question_zh: { type: 'STRING' },
+    },
+    required: ['reading_zh', 'notices_zh', 'question_zh'],
+};
+
+export async function pretend(text, persona) {
+    if (!NO_BACKEND) {
+        const r = await axios.post(`${BACKEND_BASE}/api/pretend`, { text, persona });
+        return r.data;
+    }
+    const key = getStoredKey();
+    if (!key) throw Object.assign(new Error('尚未設定 Gemini API 金鑰,請到設定填入。'), { status: 503 });
+    const who = String(persona || '').trim().slice(0, 120);
+    const prompt = `Suspend ordinary assumptions for a moment and read this passage
+as ${who}. Stay in character, but stay honest: do not invent facts about the
+passage that are not there.
+
+Reply in Traditional Chinese (Taiwan) with these fields:
+reading_zh: how ${who} would read and react to this passage.
+notices_zh: what ${who} would notice here that a modern researcher walks past.
+question_zh: the one question ${who} would ask about it.
+
+Passage:
+${text}`;
+    const json = await callGemini(GEMINI_MODEL, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema: PRETEND_SCHEMA },
     }, key);
     let out = extractText(json).trim();
     if (out.startsWith('```json')) out = out.slice(7);
@@ -369,5 +407,43 @@ export async function glossaryList() {
 export async function glossaryRecord(zh, en) {
     if (NO_BACKEND) throw new Error('片語本(Obsidian)僅在桌面版可用。');
     const r = await axios.post(`${BACKEND_BASE}/api/glossary/record`, { zh, en });
+    return r.data;
+}
+
+// ── Obsidian associative notes ──────────────────────────────────────────────
+// Desktop-only: the vault is on disk. In the browser build these report
+// "unavailable" — except writing a note, which downloads the same Markdown
+// instead, so you can drop it into your vault by hand.
+// `count` makes the backend index (= read) the whole vault. Only pass it once
+// the user has turned on associative reading.
+export async function vaultStatus(folder, count = false) {
+    if (NO_BACKEND) return { available: false };
+    const params = {};
+    if (folder) params.folder = folder;
+    if (count) params.count = true;
+    const r = await axios.get(`${BACKEND_BASE}/api/vault/status`, { params });
+    return r.data;
+}
+export async function vaultAssociate(payload) {
+    if (NO_BACKEND) return { associations: [], fallback: true, reason: 'web' };
+    const r = await axios.post(`${BACKEND_BASE}/api/vault/associate`, payload);
+    return r.data;
+}
+export async function vaultWriteNote(payload) {
+    if (NO_BACKEND) {
+        const blob = new Blob([payload.markdown], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${payload.filename}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Revoking synchronously can beat the download to the URL, and the
+        // browser then falls back to a generic "download" filename.
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return { downloaded: true, gr_id: payload.gr_id };
+    }
+    const r = await axios.post(`${BACKEND_BASE}/api/vault/note`, payload);
     return r.data;
 }

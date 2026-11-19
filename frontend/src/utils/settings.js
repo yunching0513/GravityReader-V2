@@ -28,7 +28,7 @@ export const DEFAULTS = Object.freeze({
         highlightColor: 'rgba(193, 95, 60, 0.22)',
     },
 
-    read: { translationMode: 'sentence', summaryLength: 500 },
+    read: { translationMode: 'sentence', summaryLength: 500, persona: '你的指導教授' },
 
     // 心流 · flow
     // The numbers here are starting points, not findings. The "+4% challenge"
@@ -63,7 +63,9 @@ export const DEFAULTS = Object.freeze({
         duckRatio: 0.25,
     },
 
-    vault: { associativeEnabled: false, folder: "Yun's Reader" },
+    // Reading the vault (associativeEnabled) and writing to it (sync) are
+    // separate switches, both off until you turn them on.
+    vault: { associativeEnabled: false, sync: false, folder: "Yun's Reader" },
 
     stats: {
         skips: { break: 0, dump: 0, cut: 0 },

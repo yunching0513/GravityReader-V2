@@ -157,12 +157,12 @@ export const updateFilePage = async (id, page) => {
 // A note belongs to a file (fileId). It may be a free-form thought, or a
 // passage captured from the bilingual reading (en/zh). source: 'manual' | 'reading'.
 
-export const addNote = async ({ fileId, text = '', en = '', zh = '', source = 'manual' }) => {
+export const addNote = async ({ fileId, text = '', en = '', zh = '', source = 'manual', page = null }) => {
     const db = await initDB();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([NOTES_STORE], 'readwrite');
         const store = transaction.objectStore(NOTES_STORE);
-        const note = { fileId, text, en, zh, source, createdAt: new Date().getTime() };
+        const note = { fileId, text, en, zh, source, page, createdAt: new Date().getTime() };
         const request = store.add(note);
         request.onsuccess = () => resolve({ ...note, id: request.result });
         request.onerror = () => reject(request.error);
@@ -197,6 +197,26 @@ export const updateNote = async (id, text) => {
             } else {
                 reject("Note not found");
             }
+        };
+        getRequest.onerror = () => reject(getRequest.error);
+    });
+};
+
+// Merge fields into a note — used to remember where it lives in the vault
+// (vaultPath, grId) and which distant associations it links to.
+export const patchNote = async (id, patch) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([NOTES_STORE], 'readwrite');
+        const store = transaction.objectStore(NOTES_STORE);
+        const getRequest = store.get(id);
+        getRequest.onsuccess = () => {
+            const data = getRequest.result;
+            if (!data) { reject("Note not found"); return; }
+            const next = { ...data, ...patch };
+            const put = store.put(next);
+            put.onsuccess = () => resolve(next);
+            put.onerror = () => reject(put.error);
         };
         getRequest.onerror = () => reject(getRequest.error);
     });

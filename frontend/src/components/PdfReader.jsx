@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones, Maximize2, Languages, Volume2, Lightbulb } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones, Maximize2, Languages, Volume2, Lightbulb, Drama } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 // Bundle the pdf.js worker with the app instead of pulling it from a CDN at
@@ -12,7 +12,7 @@ import GuideCursor from './GuideCursor';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
-const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
+const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onPretend, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -160,6 +160,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
     const doTranslate = () => { if (sel) onTextSelect(sel.text); clearSelection(); };
     const doSpeak = () => { if (sel && onReadSelection) onReadSelection(sel.text); clearSelection(); };
     const doExplain = () => { if (sel && onExplain) onExplain(sel.text); clearSelection(); };
+    const doPretend = () => { if (sel && onPretend) onPretend(sel.text); clearSelection(); };
 
     // ── Highlighting ──────────────────────────────────────────────────
     // Read-aloud re-highlights on every spoken sentence, so this runs dozens of
@@ -442,6 +443,9 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
                     <button onMouseDown={(e) => e.preventDefault()} onClick={doSpeak}><Volume2 size={13} /> 朗讀</button>
                     {onExplain && (
                         <button onMouseDown={(e) => e.preventDefault()} onClick={doExplain}><Lightbulb size={13} /> 降維</button>
+                    )}
+                    {onPretend && (
+                        <button onMouseDown={(e) => e.preventDefault()} onClick={doPretend}><Drama size={13} /> 角色</button>
                     )}
                 </div>
             )}
