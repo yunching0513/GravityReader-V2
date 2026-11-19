@@ -3,7 +3,7 @@ import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, P
 import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
 import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote, getTranslation, putTranslation, addDump, getDumps, isSchemaStale } from './utils/db';
-import { BookOpen, Timer } from 'lucide-react';
+import { BookOpen, Timer, FileText, Languages, StickyNote, LocateFixed } from 'lucide-react';
 import { useAudioReader } from './utils/audioReader';
 import { splitSentences, hashText } from './utils/tts';
 import { useSetting, useSettings, get as getSetting, setPath as setSettingPath, bump } from './utils/settings';
@@ -19,7 +19,22 @@ const ShareCard = lazy(() => import('./components/ShareCard'));
 const BreakLock = lazy(() => import('./components/BreakLock'));
 const BrainDump = lazy(() => import('./components/BrainDump'));
 import * as api from './utils/apiClient';
+import { useMediaQuery, MOBILE_QUERY } from './utils/useMediaQuery';
 const IS_WEB = api.isWebMode();
+
+// Turn an API failure into a message that names the real cause. The web build
+// has no backend, so "is the backend running?" was always the wrong advice
+// there — apiClient already throws readable messages for the common cases.
+function friendlyError(err, fallback) {
+    if (!IS_WEB) return '無法連上本機服務,請確認後端正在運行。';
+    const status = err && (err.status || (err.response && err.response.status));
+    if (status === 400 || status === 403) return 'Gemini 拒絕了這個金鑰,請到側欄「API 金鑰」確認是否正確。';
+    if (status === 429) return 'Gemini 用量暫時達到上限,稍等一分鐘再試。';
+    const msg = err && err.message;
+    // apiClient's own messages are user-facing Chinese; raw "Gemini 500: {…}" isn't.
+    if (msg && !/^Gemini \d{3}:/.test(msg)) return msg;
+    return fallback;
+}
 
 const DEFAULT_VOICES = [
     { id: 'Kore', label: 'Kore · 沉穩女聲' },
@@ -36,6 +51,23 @@ function App() {
     // committed once on mouse-up.
     const [leftWidth, setLeftWidth] = useState(() => getSetting('ui.leftWidth', 50));
     const [isDragging, setIsDragging] = useState(false);
+
+    // Phone layout: one pane at a time, switched by a bottom tab bar.
+    const isMobile = useMediaQuery(MOBILE_QUERY);
+    // Starts on the analysis pane: with no document open that's where the
+    // getting-started checklist lives; opening a PDF jumps to the reader.
+    const [mobilePane, setMobilePane] = useState('analysis'); // 'reader' | 'analysis'
+    const isMobileRef = useRef(isMobile);
+    isMobileRef.current = isMobile;
+    // Stable on purpose (refs + a state setter only), so memoised handlers can
+    // call it without re-creating themselves when the viewport changes.
+    // On a phone the drawer covers ~88% of the screen, so any jump to a pane
+    // closes it too.
+    const goPane = useCallback((pane) => {
+        if (!isMobileRef.current) return;
+        setMobilePane(pane);
+        setIsSidebarOpen(false);
+    }, []);
 
     // Sidebar & Features State
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -190,6 +222,7 @@ function App() {
         if (!text) return;
         const token = ++metaphorTokenRef.current;
         setActiveTab('reading');
+        goPane('analysis');
         setMetaphor({ loading: true, text });
 
         const cacheKey = `metaphor|${text.length}|${hashText(text)}`;
@@ -393,6 +426,7 @@ function App() {
 
     const startReadingFrom = useCallback(async (pageNo) => {
         if (!pdfDocumentRef.current) { alert('請先載入 PDF 文件。'); return; }
+        goPane('reader'); // the spoken sentence is highlighted on the page
         ttsPageRef.current = pageNo;
         setRequestedPage(pageNo);
         const segs = splitSentences(await extractPageText(pageNo));
@@ -634,6 +668,7 @@ function App() {
                 await loadLibrary();
                 // Also load into reader immediately
                 setExternalFile(file);
+                goPane('reader');
                 setCurrentFileId(newId); // Assuming saveFile returns the ID, checking db.js implementation
                 setCurrentDocName(file.name);
                 setInitialPage(1);
@@ -651,6 +686,7 @@ function App() {
         setCurrentFileId(fileData.id);
         setCurrentDocName(fileData.name);
         setInitialPage(fileData.lastPage || 1);
+        goPane('reader');
         maybeOpenDump(fileData.id, fileData.name);
     };
 
@@ -665,6 +701,7 @@ function App() {
             setCurrentDocName(item.title);
             setInitialPage(1);
             setIsSidebarOpen(false);
+            goPane('reader');
             maybeOpenDump(`zotero:${item.attKey}`, item.title);
         } catch (e) {
             alert('無法開啟此 PDF。');
@@ -695,6 +732,7 @@ function App() {
             setViewMode('digest');
             setActiveTab('reading');
             setIsSidebarOpen(false);
+            goPane('analysis');
         } catch (_) {}
         finally { setDigestLoading(false); }
     };
@@ -777,6 +815,7 @@ function App() {
     const handleTextSelect = useCallback(async (text) => {
         const token = ++translateTokenRef.current;
         setActiveTab('reading');
+        goPane('analysis');
         setViewMode('analysis');
         setIsLoading(true);
         setError(null);
@@ -810,7 +849,7 @@ function App() {
         } catch (err) {
             if (translateTokenRef.current !== token) return;
             console.error("API Error:", err);
-            setError("無法分析文本，請確認後端服務正在運行。");
+            setError(friendlyError(err, '翻譯失敗,請再試一次。'));
         } finally {
             if (translateTokenRef.current === token) setIsLoading(false);
         }
@@ -849,6 +888,7 @@ function App() {
         }
         setIsSummarizing(true);
         setActiveTab('reading');
+        goPane('analysis');
         setViewMode('summary');
         setSummaryResult(null);
         setError(null);
@@ -859,7 +899,7 @@ function App() {
             setSummaryResult(summary);
         } catch (err) {
             console.error("Summarize Error:", err);
-            setError("文件摘要生成失敗。");
+            setError(friendlyError(err, '文件摘要生成失敗,請再試一次。'));
         } finally {
             setIsSummarizing(false);
         }
@@ -897,7 +937,7 @@ function App() {
     const isEmpty = !isBusy && !analysisResult && !summaryResult && !error && viewMode !== 'digest';
 
     return (
-        <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}`}>
+        <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}${isMobile ? ` is-mobile pane-${mobilePane}` : ''}`}>
             {/* Sidebar Toggle */}
             <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -1599,7 +1639,7 @@ function App() {
             </aside>
 
             {/* Left Panel — PDF Reader */}
-            <div className="gr-reader" style={{ width: `${leftWidth}%`, minWidth: '20%' }}>
+            <div className="gr-reader gr-pane-reader" style={isMobile ? undefined : { width: `${leftWidth}%`, minWidth: '20%' }}>
                 <PdfReader
                     onTextSelect={handleTextSelect}
                     onReadSelection={handleReadSelection}
@@ -1649,14 +1689,16 @@ function App() {
                 )}
             </div>
 
-            {/* Resizer */}
-            <div
-                className={`gr-resizer ${isDragging ? 'is-dragging' : ''}`}
-                onMouseDown={() => setIsDragging(true)}
-            />
+            {/* Resizer — split view only */}
+            {!isMobile && (
+                <div
+                    className={`gr-resizer ${isDragging ? 'is-dragging' : ''}`}
+                    onMouseDown={() => setIsDragging(true)}
+                />
+            )}
 
             {/* Right Panel — Analysis / Summary */}
-            <div className="gr-analysis" style={{ width: `${100 - leftWidth}%` }}>
+            <div className="gr-analysis gr-pane-analysis" style={isMobile ? undefined : { width: `${100 - leftWidth}%` }}>
                 {/* Header */}
                 <div className="gr-analysis-head">
                     <div className="gr-tabs">
@@ -1747,7 +1789,7 @@ function App() {
                                 ? (currentDocName ? `《${currentDocName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
                                 : viewMode === 'summary' ? '由 AI 生成的全文摘要。'
                                 : viewMode === 'digest' ? (activeDigest ? `${activeDigest.date} · PhD Research Digest` : '請從側欄選擇摘要')
-                                : '於左側 PDF 中選取文字以進行對譯。'}
+                                : isMobile ? '在「原文」頁長按選取文字,即可對譯。' : '於左側 PDF 中選取文字以進行對譯。'}
                         </div>
                     </div>
 
@@ -1840,10 +1882,22 @@ function App() {
                                             >
                                                 <span className="gr-entry-n">{String(index + 1).padStart(2, '0')}</span>
                                                 <div className="gr-entry-tools">
+                                                    {/* Phone only: the PDF isn't on screen, so jump to it. */}
+                                                    {isMobile && (
+                                                        <button
+                                                            className="gr-entry-tool"
+                                                            onClick={(e) => { e.stopPropagation(); setHighlightedText(item.en); setMobilePane('reader'); }}
+                                                            title="在原文中定位"
+                                                            aria-label="在原文中定位"
+                                                        >
+                                                            <LocateFixed size={14} />
+                                                        </button>
+                                                    )}
                                                     <button
                                                         className="gr-entry-tool"
                                                         onClick={(e) => { e.stopPropagation(); handleReadEntry(item.en); }}
                                                         title="朗讀這段"
+                                                        aria-label="朗讀這段"
                                                     >
                                                         <Volume2 size={14} />
                                                     </button>
@@ -1965,9 +2019,11 @@ function App() {
                                     },
                                     {
                                         id: 'select',
-                                        zh: '在左側選取一段文字',
+                                        zh: isMobile ? '在「原文」頁選取一段文字' : '在左側選取一段文字',
                                         en: 'Select a passage',
-                                        note: '選取後點「翻譯」,逐句對照會出現在這裡;每一句都能朗讀、存成筆記。',
+                                        note: isMobile
+                                            ? '長按文字並拖曳選取範圍,點「翻譯」後會跳到這一頁;每一句都能朗讀、存成筆記,或回原文定位。'
+                                            : '選取後點「翻譯」,逐句對照會出現在這裡;每一句都能朗讀、存成筆記。',
                                         done: false,
                                         action: null,
                                     },
@@ -2080,6 +2136,38 @@ function App() {
                     )}
                 </div>
             </div>
+
+            {/* Phone: bottom tab bar — one pane at a time */}
+            {isMobile && (
+                <nav className="gr-mobnav" aria-label="切換畫面">
+                    {[
+                        { id: 'reader', zh: '原文', en: 'PDF', Icon: FileText,
+                          active: mobilePane === 'reader',
+                          go: () => setMobilePane('reader') },
+                        { id: 'reading', zh: '精讀', en: 'Reading', Icon: Languages,
+                          active: mobilePane === 'analysis' && activeTab === 'reading',
+                          busy: isBusy,
+                          go: () => { setMobilePane('analysis'); setActiveTab('reading'); } },
+                        { id: 'notes', zh: '筆記', en: 'Notes', Icon: StickyNote,
+                          active: mobilePane === 'analysis' && activeTab === 'notes',
+                          count: notes.length,
+                          go: () => { setMobilePane('analysis'); setActiveTab('notes'); } },
+                    ].map(({ id, zh, en, Icon, active, busy, count, go }) => (
+                        <button
+                            key={id}
+                            className={`gr-mobnav-btn${active ? ' is-active' : ''}`}
+                            onClick={go}
+                            aria-current={active ? 'page' : undefined}
+                        >
+                            <Icon size={20} aria-hidden="true" />
+                            <span className="zh">{zh}</span>
+                            <span className="en">{en}</span>
+                            {count > 0 && <span className="gr-mobnav-count">{count}</span>}
+                            {busy && !active && <span className="gr-mobnav-busy" aria-label="處理中" />}
+                        </button>
+                    ))}
+                </nav>
+            )}
 
             {shareNote && (
                 <Suspense fallback={null}>

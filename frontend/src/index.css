@@ -1547,10 +1547,16 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
   position: fixed;
   z-index: 80;
   transform: translate(-50%, -100%);
+  /* max-content: a fixed box near the right edge would otherwise shrink to the
+     space left of `left`, throwing off the centring and edge clamp. */
+  width: max-content;
   display: flex;
   background: var(--ink);
-  animation: gr-fade var(--t1) var(--e);
+  /* opacity only — gr-fade animates transform, which would override the
+     centring translate for the first frames and make the popup jump. */
+  animation: gr-appear var(--t1) var(--e);
 }
+@keyframes gr-appear { from { opacity: 0; } to { opacity: 1; } }
 .gr-sel-pop::after {
   content: '';
   position: absolute;
@@ -2397,3 +2403,170 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
   border-radius: 0;
 }
 .gr-upload--slim { padding: 12px 14px; margin-bottom: 14px; }
+
+/* ════════ SELECTION POPUP · below-selection variant (touch) ════════ */
+.gr-sel-pop.is-below { transform: translate(-50%, 0); }
+.gr-sel-pop.is-below::after {
+  top: -5px;
+  bottom: auto;
+  border-top: none;
+  border-bottom: 6px solid var(--ink);
+}
+
+/* ════════ TOUCH · no hover to reveal things ════════
+   Hover-only affordances are invisible on a touch screen, so show them. */
+@media (hover: none) {
+  .gr-entry-tools,
+  .gr-entry-capture,
+  .gr-note-act,
+  .gr-file-del { opacity: 1; }
+  .gr-gutter { display: none; }
+}
+
+/* ════════ PHONE · 單欄 + 底部分頁 ════════
+   Below 760px the two panes become one pane at a time (.pane-reader /
+   .pane-analysis on .gr-app), switched by the bottom tab bar. */
+.gr-mobnav { display: none; }
+
+@media (max-width: 760px) {
+  .gr-app.is-mobile {
+    height: 100vh;
+    height: 100dvh;           /* track the mobile browser's collapsing toolbar */
+    flex-direction: column;
+    padding-bottom: calc(60px + env(safe-area-inset-bottom));
+  }
+  .gr-app.is-mobile .gr-pane-reader,
+  .gr-app.is-mobile .gr-pane-analysis {
+    width: 100%;
+    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    border-right: none;
+  }
+  /* display:none keeps the PDF mounted — switching tabs doesn't re-render it. */
+  .gr-app.is-mobile.pane-reader .gr-pane-analysis,
+  .gr-app.is-mobile.pane-analysis .gr-pane-reader { display: none; }
+
+  /* ── mastheads: 56px, room on the left for the menu button ── */
+  .gr-menu-btn { top: 8px; left: 12px; }
+  .gr-reader-bar,
+  .gr-analysis-head { min-height: 56px; }
+  .gr-reader-bar { padding: 8px 12px 8px 64px; gap: 8px; justify-content: flex-start; }
+  .gr-analysis-head { padding: 0 12px 0 64px; align-items: center; flex-wrap: nowrap; }
+  .gr-brand,
+  .gr-zoom,                    /* fit-to-width runs automatically */
+  .gr-tabs,                    /* the bottom bar takes over Reading / Notes */
+  .gr-tool-label,
+  .gr-timer-phase { display: none; }
+  .gr-ctrls { gap: 6px; }
+  .gr-head-tools { gap: 10px; margin-left: auto; }
+
+  /* ── touch targets ≥ 40px ── */
+  .gr-btn--icon { min-width: 40px; min-height: 40px; justify-content: center; }
+  .gr-swatch { width: 30px; height: 30px; }
+  .gr-seg button { padding: 10px 14px; }
+  .gr-entry-tool { width: 40px; height: 40px; }
+  .gr-sel-pop button { padding: 13px 16px; font-size: var(--fs-14); }
+
+  /* ── reading surfaces ── */
+  .gr-canvas { padding: 12px; }
+  .gr-analysis-body { padding: 20px 16px 32px; }
+  .gr-head-title { font-size: var(--fs-24); }
+  .gr-empty { padding: 32px 20px; }
+  .gr-empty .glyph { font-size: var(--fs-72); }
+  .gr-key-banner { flex-direction: column; align-items: flex-start; gap: 12px; }
+
+  /* entry: tools drop below the text instead of covering its first line */
+  .gr-entry { display: flex; flex-direction: column; padding: 18px 16px 16px 44px; }
+  .gr-entry-n { left: 16px; top: 20px; }
+  .gr-entry-tools { position: static; order: 10; opacity: 1; margin-top: 14px; gap: 8px; }
+
+  /* audio bar: sentence on its own row, transport + speed below */
+  .gr-audiobar { flex-wrap: wrap; gap: 10px 12px; padding: 10px 12px; }
+  .gr-audio-now { order: -1; flex-basis: 100%; }
+  .gr-audio-controls { margin-left: auto; }
+
+  .gr-modal-backdrop,
+  .gr-share-backdrop { padding: 12px; }
+  .gr-lock-inner { padding: 28px 20px; }
+
+  /* ── bottom tab bar ── */
+  .gr-mobnav {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;               /* under the drawer scrim (54) and modals (92) */
+    height: calc(60px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--paper);
+    border-top: 2px solid var(--ink);
+  }
+  .gr-mobnav-btn {
+    position: relative;
+    flex: 1 1 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 8px;
+    align-content: center;
+    justify-items: start;
+    padding: 0 14px;
+    text-align: left;
+    background: none;
+    border: none;
+    border-right: 1px solid var(--stone);
+    color: var(--ash);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--t2) var(--e);
+  }
+  .gr-mobnav-btn:last-child { border-right: none; }
+  .gr-mobnav-btn svg { grid-row: 1 / span 2; align-self: center; }
+  .gr-mobnav-btn .zh {
+    font-family: var(--sans);
+    font-size: var(--fs-14);
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .gr-mobnav-btn .en {
+    font-family: var(--sans);
+    font-size: var(--fs-11);
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .gr-mobnav-btn.is-active { color: var(--ink); }
+  /* red signage band on the active tab */
+  .gr-mobnav-btn.is-active::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--red);
+  }
+  .gr-mobnav-count {
+    position: absolute;
+    top: 9px;
+    right: 10px;
+    font-family: var(--sans);
+    font-size: var(--fs-11);
+    font-weight: 700;
+    line-height: 1;
+    color: var(--paper);
+    background: var(--red);
+    padding: 3px 5px;
+  }
+  /* static red square: work is happening on a tab you're not looking at */
+  .gr-mobnav-busy {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 7px;
+    height: 7px;
+    background: var(--red);
+  }
+}
