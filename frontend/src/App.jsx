@@ -312,13 +312,29 @@ function App() {
         }
     };
 
-    // On first run with no key, open the key settings to prompt the user.
+    // A missing key used to throw the settings drawer open over a scrim on first
+    // run — before the visitor knew what the app was. The reading pane's
+    // getting-started checklist now carries that step instead.
     useEffect(() => {
-        refreshKeyStatus().then(has => {
-            if (has === false) { setIsSidebarOpen(true); setOpenSection('apikey'); }
-        });
+        refreshKeyStatus();
         refreshGlossary();
     }, []);
+
+    const openKeySettings = () => { setIsSidebarOpen(true); setOpenSection('apikey'); };
+
+    // Escape closes the drawer — unless a modal or the break lock is on top:
+    // modals handle their own Escape, and the break lock deliberately has none.
+    useEffect(() => {
+        if (!isSidebarOpen) return undefined;
+        const onKey = (e) => {
+            if (e.key !== 'Escape') return;
+            if (document.querySelector('.gr-modal-backdrop, .gr-share-backdrop, .gr-lock')) return;
+            setIsSidebarOpen(false);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [isSidebarOpen]);
+    const startFileRef = useRef(null); // hidden PDF input behind the "選擇 PDF" buttons
 
     const saveKey = async () => {
         const k = keyDraft.trim();
@@ -887,6 +903,9 @@ function App() {
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 className="gr-menu-btn"
                 title={isSidebarOpen ? '關閉側欄' : '開啟側欄'}
+                aria-label={isSidebarOpen ? '關閉側欄' : '開啟側欄'}
+                aria-expanded={isSidebarOpen}
+                aria-controls="gr-sidebar"
             >
                 {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
@@ -898,7 +917,7 @@ function App() {
             />
 
             {/* Sidebar Drawer */}
-            <aside className={`gr-sidebar gr-scroll ${isSidebarOpen ? 'is-open' : ''}`}>
+            <aside id="gr-sidebar" aria-label="側欄" className={`gr-sidebar gr-scroll ${isSidebarOpen ? 'is-open' : ''}`}>
                 <div className="gr-side-head">
                     <div className="gr-side-mark">Yun's <span>Reader</span></div>
                     <div className="gr-side-sub">昀氏閱讀 · 雙語精讀 · II</div>
@@ -921,7 +940,7 @@ function App() {
                                 <Upload size={18} />
                                 <span className="zh">上傳新文件</span>
                                 <span className="en">Upload PDF</span>
-                                <input type="file" onChange={handleFileChange} style={{ display: 'none' }} accept=".pdf" />
+                                <input type="file" onChange={handleFileChange} className="gr-sr-only" accept=".pdf" />
                             </label>
 
                             <div className="gr-filelist gr-scroll">
@@ -1479,7 +1498,7 @@ function App() {
                                 <Upload size={14} />
                                 <span className="zh">{settings.audio.ambienceAsset || '選擇音檔'}</span>
                                 <span className="en">your own track · loops</span>
-                                <input type="file" accept="audio/*" onChange={pickAmbienceFile} style={{ display: 'none' }} />
+                                <input type="file" accept="audio/*" onChange={pickAmbienceFile} className="gr-sr-only" />
                             </label>
 
                             <label className="gr-audio-field">
@@ -1659,27 +1678,33 @@ function App() {
                     <div className="gr-head-tools">
                         {/* Highlight color — reading only */}
                         {activeTab === 'reading' && (
-                            <div className="gr-tool-group">
-                                <span className="gr-tool-label">標</span>
+                            <div className="gr-tool-group" role="group" aria-label="標示顏色">
+                                <span className="gr-tool-label">標示</span>
                                 <button
                                     className={`gr-swatch ${highlightColor.includes('227') ? 'is-active' : ''}`}
                                     style={{ background: 'rgba(227, 6, 19, 0.5)' }}
                                     onClick={() => setHighlightColor('rgba(227, 6, 19, 0.20)')}
+                                    aria-pressed={highlightColor.includes('227')}
+                                    aria-label="紅色標示"
                                     title="紅 · Red"
                                 />
                                 <button
                                     className={`gr-swatch ${highlightColor.includes('204') ? 'is-active' : ''}`}
                                     style={{ background: 'rgba(255, 204, 0, 0.7)' }}
                                     onClick={() => setHighlightColor('rgba(255, 204, 0, 0.40)')}
+                                    aria-pressed={highlightColor.includes('204')}
+                                    aria-label="黃色標示"
                                     title="黃 · Yellow"
                                 />
                             </div>
                         )}
 
-                        {/* Font toggle */}
+                        {/* Reading size toggle */}
                         <button
-                            className={`gr-btn ${fontMode === 'zen' ? 'gr-btn--solid' : ''}`}
+                            className={`gr-btn gr-btn--case ${fontMode === 'zen' ? 'gr-btn--solid' : ''}`}
                             onClick={() => setFontMode(fontMode === 'default' ? 'zen' : 'default')}
+                            aria-pressed={fontMode === 'zen'}
+                            aria-label="放大閱讀字級"
                             title={fontMode === 'zen' ? '還原字級 · Reset reading size' : '放大閱讀字級 · Larger reading text'}
                         >
                             Aa
@@ -1691,12 +1716,14 @@ function App() {
                                 <button
                                     className={translationMode === 'sentence' ? 'is-active' : ''}
                                     onClick={() => setTranslationMode('sentence')}
+                                    aria-pressed={translationMode === 'sentence'}
                                 >
                                     逐句
                                 </button>
                                 <button
                                     className={translationMode === 'paragraph' ? 'is-active' : ''}
                                     onClick={() => setTranslationMode('paragraph')}
+                                    aria-pressed={translationMode === 'paragraph'}
                                 >
                                     逐段
                                 </button>
@@ -1724,13 +1751,14 @@ function App() {
                         </div>
                     </div>
 
-                    {hasKey === false && (
+                    {/* The getting-started checklist already carries this step. */}
+                    {hasKey === false && !(activeTab === 'reading' && isEmpty) && (
                         <div className="gr-key-banner">
                             <div>
                                 <div className="gr-key-banner-zh">尚未設定 Gemini API 金鑰</div>
                                 <div className="gr-key-banner-en">翻譯、朗讀與摘要需要你自己的金鑰(免費)。</div>
                             </div>
-                            <button className="gr-btn gr-btn--accent" onClick={() => { setIsSidebarOpen(true); setOpenSection('apikey'); }}>
+                            <button className="gr-btn gr-btn--accent" onClick={openKeySettings}>
                                 前往設定
                             </button>
                         </div>
@@ -1912,26 +1940,76 @@ function App() {
                                 </div>
                             )}
 
-                            {/* Empty */}
-                            {isEmpty && (
-                                <div className="gr-empty" style={{ minHeight: '60vh' }}>
-                                    <div className="glyph">間</div>
-                                    <div className="en">Awaiting the text</div>
-                                    <div className="zh">靜待文本</div>
-                                    <div className="hint">select text in the pdf</div>
-                                </div>
-                            )}
+                            {/* Empty → getting-started checklist that tracks real progress */}
+                            {isEmpty && (() => {
+                                const steps = [
+                                    {
+                                        id: 'key',
+                                        zh: '設定 Gemini API 金鑰',
+                                        en: 'Add your Gemini key',
+                                        note: IS_WEB
+                                            ? '免費取得。金鑰只存在這個瀏覽器,直接送往 Google,不經其他伺服器。'
+                                            : '免費取得。金鑰只存在這台電腦。',
+                                        done: hasKey === true,
+                                        action: <button className="gr-btn gr-btn--accent" onClick={openKeySettings}>設定金鑰 →</button>,
+                                    },
+                                    {
+                                        id: 'doc',
+                                        zh: '開啟一份 PDF',
+                                        en: 'Open a document',
+                                        note: '或從側欄「我的書庫」開啟上次讀的文件,會接續在同一頁。',
+                                        // pdfNumPages is set by every load path (library, Zotero,
+                                        // and the reader pane's own file picker); externalFile isn't.
+                                        done: pdfNumPages > 0,
+                                        action: <button className="gr-btn" onClick={() => startFileRef.current && startFileRef.current.click()}>選擇 PDF →</button>,
+                                    },
+                                    {
+                                        id: 'select',
+                                        zh: '在左側選取一段文字',
+                                        en: 'Select a passage',
+                                        note: '選取後點「翻譯」,逐句對照會出現在這裡;每一句都能朗讀、存成筆記。',
+                                        done: false,
+                                        action: null,
+                                    },
+                                ];
+                                const current = steps.findIndex(s => !s.done);
+                                return (
+                                    <section className="gr-start" aria-labelledby="gr-start-title">
+                                        <div className="gr-start-kicker" id="gr-start-title">Getting started · 開始使用</div>
+                                        <ol className="gr-start-list">
+                                            {steps.map((s, i) => (
+                                                <li
+                                                    key={s.id}
+                                                    className={`gr-start-step${s.done ? ' is-done' : ''}${i === current ? ' is-current' : ''}`}
+                                                    aria-current={i === current ? 'step' : undefined}
+                                                >
+                                                    <span className="gr-start-n">{String(i + 1).padStart(2, '0')}</span>
+                                                    <div className="gr-start-body">
+                                                        <div className="gr-start-zh">{s.zh}</div>
+                                                        <div className="gr-start-en">{s.en}</div>
+                                                        {!s.done && <p className="gr-start-note">{s.note}</p>}
+                                                    </div>
+                                                    <div className="gr-start-act">
+                                                        {s.done ? <span className="gr-start-done">完成 · Done</span> : s.action}
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ol>
+                                        <input ref={startFileRef} type="file" accept=".pdf" hidden onChange={handleFileChange} />
+                                    </section>
+                                );
+                            })()}
                         </>
                     )}
 
                     {/* Notes */}
                     {activeTab === 'notes' && (
                         !currentFileId ? (
-                            <div className="gr-empty" style={{ minHeight: '60vh' }}>
-                                <div className="glyph">錄</div>
+                            <div className="gr-empty gr-empty--inline">
                                 <div className="en">No document open</div>
-                                <div className="zh">開啟文件以開始筆記</div>
-                                <div className="hint">open a pdf from the library</div>
+                                <div className="zh">筆記跟著文件走 —— 先開啟一份 PDF。</div>
+                                <button className="gr-btn" onClick={() => startFileRef.current && startFileRef.current.click()}>選擇 PDF →</button>
+                                <input ref={startFileRef} type="file" accept=".pdf" hidden onChange={handleFileChange} />
                             </div>
                         ) : (
                             <div className="gr-notes">

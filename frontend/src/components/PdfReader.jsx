@@ -413,7 +413,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
                             <Upload size={18} />
                             <span className="zh">選擇 PDF 開始閱讀</span>
                             <span className="en">Open a document</span>
-                            <input type="file" onChange={onFileChange} style={{ display: 'none' }} accept=".pdf" />
+                            <input type="file" onChange={onFileChange} className="gr-sr-only" accept=".pdf" />
                         </label>
                     </div>
                 )}
