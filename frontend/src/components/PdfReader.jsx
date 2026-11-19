@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones, Maximize2, Languages, Volume2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones, Maximize2, Languages, Volume2, Lightbulb } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 // Bundle the pdf.js worker with the app instead of pulling it from a CDN at
@@ -8,10 +8,17 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 // the first page renders without a cross-origin round trip, and the worker can
 // never drift out of version-sync with the pdfjs-dist react-pdf resolves to.
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.js?url';
+import GuideCursor from './GuideCursor';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
-const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading }) => {
+// Touch screens: a long-press selection never fires mouseup, and the OS draws
+// its own copy/lookup callout *above* the selection — so on these devices the
+// popup is driven by selectionchange and placed below the selection.
+const IS_COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+const POP_HALF_WIDTH = 130; // keep the popup's centre this far from the screen edge
+
+const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -29,6 +36,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
     const textIndexRef = useRef(null);   // memoised search index for the rendered text layer
     const styledRef = useRef([]);        // spans we tinted last pass (so we only clear those)
     const highlightTimerRef = useRef(null);
+    const [zooming, setZooming] = useState(false);   // live ctrl-wheel preview
 
     // The parent re-creates its callbacks on every render. Keep them in refs so
     // effects below depend only on real state changes — otherwise every keystroke
@@ -92,23 +100,25 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
     }
 
     // Fit the page to the container width (minus padding).
+    // Returns false when it can't measure yet — e.g. the reader pane is hidden
+    // behind the phone layout's other tab — so the caller can retry later.
     const fitWidth = () => {
         const el = scrollRef.current;
-        if (!el || !pageWidthRef.current) return;
-        const target = (el.clientWidth - 72) / pageWidthRef.current;
+        if (!el || !pageWidthRef.current || el.clientWidth < 80) return false;
+        const cs = getComputedStyle(el);
+        const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2; // + page border
+        const target = (el.clientWidth - pad) / pageWidthRef.current;
         const clamped = Math.min(Math.max(target, 0.5), 3.0);
         pendingScaleRef.current = clamped;
         setScale(Number(clamped.toFixed(2)));
+        return true;
     };
 
     const onPageLoadSuccess = (page) => {
         // page.view = [x0, y0, x1, y1] in PDF points at scale 1
         if (page && page.view) {
             pageWidthRef.current = page.view[2] - page.view[0];
-            if (!autoFitDoneRef.current) {
-                autoFitDoneRef.current = true;
-                fitWidth();
-            }
+            if (!autoFitDoneRef.current) autoFitDoneRef.current = fitWidth();
         }
     };
 
@@ -119,21 +129,53 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
 
     // Selection → show an intentful popup (translate / read aloud) instead of
     // firing a translation on every mouse-up.
-    const handleMouseUp = () => {
+    const showSelection = (below) => {
         const selection = window.getSelection();
         const text = selection ? selection.toString().trim() : '';
         if (text.length > 1 && selection.rangeCount > 0) {
             const rect = selection.getRangeAt(0).getBoundingClientRect();
             if (rect && rect.width) {
+                const x = rect.left + rect.width / 2;
                 setSel({
                     text,
-                    x: rect.left + rect.width / 2,
-                    y: rect.top,
+                    x: Math.min(Math.max(x, POP_HALF_WIDTH), window.innerWidth - POP_HALF_WIDTH),
+                    y: below ? rect.bottom : rect.top,
+                    below,
                 });
-                return;
             }
         }
     };
+    const handleMouseUp = () => { if (!IS_COARSE) showSelection(false); };
+
+    // Touch: settle on the selection a beat after the handles stop moving.
+    useEffect(() => {
+        if (!IS_COARSE) return undefined;
+        let timer;
+        const onSelectionChange = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => {
+                const s = window.getSelection();
+                const root = scrollRef.current;
+                if (!s || s.isCollapsed || !root || !s.anchorNode || !root.contains(s.anchorNode)) return;
+                showSelection(true);
+            }, 350);
+        };
+        document.addEventListener('selectionchange', onSelectionChange);
+        return () => { clearTimeout(timer); document.removeEventListener('selectionchange', onSelectionChange); };
+    }, []);
+
+    // Re-try fit-to-width once the pane becomes measurable (phone tab switch,
+    // window resize from a collapsed state).
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return undefined;
+        const ro = new ResizeObserver(() => {
+            if (!autoFitDoneRef.current && pageWidthRef.current) autoFitDoneRef.current = fitWidth();
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Hide the popup when clicking elsewhere or scrolling the page.
     useEffect(() => {
@@ -157,6 +199,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
 
     const doTranslate = () => { if (sel) onTextSelect(sel.text); clearSelection(); };
     const doSpeak = () => { if (sel && onReadSelection) onReadSelection(sel.text); clearSelection(); };
+    const doExplain = () => { if (sel && onExplain) onExplain(sel.text); clearSelection(); };
 
     // ── Highlighting ──────────────────────────────────────────────────
     // Read-aloud re-highlights on every spoken sentence, so this runs dozens of
@@ -221,7 +264,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
         if (!needle) return;
 
         const { ranges, normalized, normToOrig } = index;
-        const color = highlightColor || 'rgba(193, 95, 60, 0.22)';
+        const color = highlightColor || 'rgba(227, 6, 19, 0.20)';
         const styled = [];
         let firstHit = null;
 
@@ -296,10 +339,12 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
                 docWrapRef.current.style.transformOrigin = 'top center';
                 docWrapRef.current.style.transform = `scale(${target / scale})`;
             }
+            setZooming(true);
             clearTimeout(commitTimerRef.current);
             commitTimerRef.current = setTimeout(() => {
                 if (docWrapRef.current) docWrapRef.current.style.transform = '';
                 setScale(Number(pendingScaleRef.current.toFixed(2)));
+                setZooming(false);
             }, 160);
         };
         el.addEventListener('wheel', onWheel, { passive: false });
@@ -367,6 +412,10 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
                         </button>
                     </div>
                 )}
+
+                {/* Outside the `file &&` block on purpose: a running focus timer
+                    must stay visible (and stoppable) even with no PDF open. */}
+                {toolbarExtra}
             </div>
 
             <div className="gr-canvas gr-scroll" ref={scrollRef}>
@@ -380,7 +429,20 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
                                 renderAnnotationLayer={true}
                                 onRenderSuccess={onRenderSuccess}
                                 onLoadSuccess={onPageLoadSuccess}
-                            />
+                            >
+                                {guide && guide.enabled && (
+                                    <GuideCursor
+                                        pageNumber={pageNumber}
+                                        scale={scale}
+                                        wpm={guide.wpm}
+                                        challenge={guide.challenge}
+                                        mode={guide.mode}
+                                        running={guide.enabled && !isReading}
+                                        hidden={zooming}
+                                        onFinishPage={guide.onFinishPage}
+                                    />
+                                )}
+                            </Page>
                         </Document>
                     </div>
                 ) : (
@@ -391,7 +453,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
                             <Upload size={18} />
                             <span className="zh">選擇 PDF 開始閱讀</span>
                             <span className="en">Open a document</span>
-                            <input type="file" onChange={onFileChange} style={{ display: 'none' }} accept=".pdf" />
+                            <input type="file" onChange={onFileChange} className="gr-sr-only" accept=".pdf" />
                         </label>
                     </div>
                 )}
@@ -412,12 +474,15 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
             {/* selection action popup */}
             {sel && (
                 <div
-                    className="gr-sel-pop"
-                    style={{ left: sel.x, top: sel.y - 10 }}
+                    className={`gr-sel-pop${sel.below ? ' is-below' : ''}`}
+                    style={{ left: sel.x, top: sel.below ? sel.y + 12 : sel.y - 10 }}
                     onMouseUp={(e) => e.stopPropagation()}
                 >
                     <button onMouseDown={(e) => e.preventDefault()} onClick={doTranslate}><Languages size={13} /> 翻譯</button>
                     <button onMouseDown={(e) => e.preventDefault()} onClick={doSpeak}><Volume2 size={13} /> 朗讀</button>
+                    {onExplain && (
+                        <button onMouseDown={(e) => e.preventDefault()} onClick={doExplain}><Lightbulb size={13} /> 降維</button>
+                    )}
                 </div>
             )}
         </div>

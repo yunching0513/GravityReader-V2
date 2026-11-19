@@ -122,22 +122,56 @@ TRANSLATION_SCHEMA = {
     },
 }
 
-def _translation_config():
-    """Structured-output config, or None if the installed SDK is too old for it
-    (`response_schema` landed in google-generativeai 0.7). Probed once at import
-    so an older environment degrades to the prompt-only path instead of 500ing."""
-    cfg = {"response_mime_type": "application/json", "response_schema": TRANSLATION_SCHEMA}
+# Every metaphor breaks somewhere. Naming where it breaks is what makes this a
+# thinking tool rather than a mnemonic, so `caution_zh` is a required field.
+METAPHOR_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "metaphor_zh": {"type": "STRING"},
+        "plain_zh": {"type": "STRING"},
+        "mapping": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {"from": {"type": "STRING"}, "to": {"type": "STRING"}},
+                "required": ["from", "to"],
+            },
+        },
+        "caution_zh": {"type": "STRING"},
+    },
+    "required": ["metaphor_zh", "plain_zh", "caution_zh"],
+}
+
+
+def _probe_structured():
+    """Whether the installed SDK supports `response_schema` (landed in
+    google-generativeai 0.7). Probed once at import, so an older environment
+    degrades to the prompt-only path instead of 500ing on every request."""
     try:
         from google.generativeai.types import generation_types
 
-        generation_types.to_generation_config_dict(cfg)
-        return cfg
+        generation_types.to_generation_config_dict(
+            {"response_mime_type": "application/json", "response_schema": TRANSLATION_SCHEMA}
+        )
+        return True
     except Exception as exc:  # pragma: no cover — depends on the installed SDK
         logger.warning("Structured JSON output unavailable (%s); using prompt-only mode.", exc)
+        return False
+
+
+_STRUCTURED_OK = _probe_structured()
+
+
+def _json_config(schema):
+    """Generation config pinning the response to `schema`, or None when the
+    installed SDK cannot express it."""
+    if not _STRUCTURED_OK:
         return None
+    return {"response_mime_type": "application/json", "response_schema": schema}
 
 
-TRANSLATION_CONFIG = _translation_config()
+TRANSLATION_CONFIG = _json_config(TRANSLATION_SCHEMA)
+METAPHOR_CONFIG = _json_config(METAPHOR_SCHEMA)
 
 # Text-to-speech (Phase 1: Gemini cloud TTS for paragraph/page read-aloud).
 GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
@@ -294,6 +328,60 @@ async def summarize_text(request: SummarizeRequest):
     except Exception as e:
         logger.error(f"Error summarizing text: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+class MetaphorRequest(BaseModel):
+    text: str
+    persona: str = ""   # optional "read this as ___" lens
+
+
+@app.post("/api/metaphor")
+def metaphor(request: MetaphorRequest):
+    logger.info("\U0001f525 Received Metaphor Request...")
+
+    if not request.text:
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    model = _model()
+
+    try:
+        lens = (request.persona or "").strip()
+        persona_line = (
+            f"Read the passage as {lens} would, and let that shape the metaphor.\n"
+            if lens else ""
+        )
+        prompt = f"""You are helping a researcher who is stuck on a difficult passage.
+Lower the difficulty without lowering the content.
+
+{persona_line}Reply in Traditional Chinese (Taiwan) with these fields:
+metaphor_zh: an everyday metaphor for the core idea. Concrete, from ordinary life.
+plain_zh: the same idea restated plainly, no jargon.
+mapping: which part of the metaphor stands for which part of the idea.
+caution_zh: where this metaphor breaks down and would mislead if pushed further.
+
+Passage:
+{request.text}
+"""
+
+        if METAPHOR_CONFIG:
+            response = model.generate_content(prompt, generation_config=METAPHOR_CONFIG)
+        else:
+            response = model.generate_content(prompt)
+
+        out = response.text.strip()
+        if out.startswith("```json"):
+            out = out[7:]
+        elif out.startswith("```"):
+            out = out[3:]
+        if out.endswith("```"):
+            out = out[:-3]
+        return out.strip()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error building metaphor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/")
 def read_root():
