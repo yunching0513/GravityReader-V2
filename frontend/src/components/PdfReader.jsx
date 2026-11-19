@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones, Maximize2, Languages, Volume2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones, Maximize2, Languages, Volume2, Lightbulb } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 // Bundle the pdf.js worker with the app instead of pulling it from a CDN at
@@ -8,10 +8,11 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 // the first page renders without a cross-origin round trip, and the worker can
 // never drift out of version-sync with the pdfjs-dist react-pdf resolves to.
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.js?url';
+import GuideCursor from './GuideCursor';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
-const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading }) => {
+const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -29,6 +30,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
     const textIndexRef = useRef(null);   // memoised search index for the rendered text layer
     const styledRef = useRef([]);        // spans we tinted last pass (so we only clear those)
     const highlightTimerRef = useRef(null);
+    const [zooming, setZooming] = useState(false);   // live ctrl-wheel preview
 
     // The parent re-creates its callbacks on every render. Keep them in refs so
     // effects below depend only on real state changes — otherwise every keystroke
@@ -157,6 +159,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
 
     const doTranslate = () => { if (sel) onTextSelect(sel.text); clearSelection(); };
     const doSpeak = () => { if (sel && onReadSelection) onReadSelection(sel.text); clearSelection(); };
+    const doExplain = () => { if (sel && onExplain) onExplain(sel.text); clearSelection(); };
 
     // ── Highlighting ──────────────────────────────────────────────────
     // Read-aloud re-highlights on every spoken sentence, so this runs dozens of
@@ -296,10 +299,12 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
                 docWrapRef.current.style.transformOrigin = 'top center';
                 docWrapRef.current.style.transform = `scale(${target / scale})`;
             }
+            setZooming(true);
             clearTimeout(commitTimerRef.current);
             commitTimerRef.current = setTimeout(() => {
                 if (docWrapRef.current) docWrapRef.current.style.transform = '';
                 setScale(Number(pendingScaleRef.current.toFixed(2)));
+                setZooming(false);
             }, 160);
         };
         el.addEventListener('wheel', onWheel, { passive: false });
@@ -367,6 +372,10 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
                         </button>
                     </div>
                 )}
+
+                {/* Outside the `file &&` block on purpose: a running focus timer
+                    must stay visible (and stoppable) even with no PDF open. */}
+                {toolbarExtra}
             </div>
 
             <div className="gr-canvas gr-scroll" ref={scrollRef}>
@@ -380,7 +389,20 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
                                 renderAnnotationLayer={true}
                                 onRenderSuccess={onRenderSuccess}
                                 onLoadSuccess={onPageLoadSuccess}
-                            />
+                            >
+                                {guide && guide.enabled && (
+                                    <GuideCursor
+                                        pageNumber={pageNumber}
+                                        scale={scale}
+                                        wpm={guide.wpm}
+                                        challenge={guide.challenge}
+                                        mode={guide.mode}
+                                        running={guide.enabled && !isReading}
+                                        hidden={zooming}
+                                        onFinishPage={guide.onFinishPage}
+                                    />
+                                )}
+                            </Page>
                         </Document>
                     </div>
                 ) : (
@@ -418,6 +440,9 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
                 >
                     <button onMouseDown={(e) => e.preventDefault()} onClick={doTranslate}><Languages size={13} /> 翻譯</button>
                     <button onMouseDown={(e) => e.preventDefault()} onClick={doSpeak}><Volume2 size={13} /> 朗讀</button>
+                    {onExplain && (
+                        <button onMouseDown={(e) => e.preventDefault()} onClick={doExplain}><Lightbulb size={13} /> 降維</button>
+                    )}
                 </div>
             )}
         </div>
