@@ -2,12 +2,18 @@ name: Build macOS
 
 # Builds the macOS installer (.dmg) so you can install the app without setting
 # up Python, Node and PyInstaller on your Mac. PyInstaller can't cross-compile,
-# so each architecture is built on a runner of that architecture:
+# so each architecture needs a runner of that architecture:
 #   macos-14 → Apple silicon (arm64)   macos-13 → Intel (x64)
+#
+# Apple silicon is built by default. Intel is opt-in because macos-13 runners
+# are being retired and this repo can't currently schedule one — a job asking
+# for macos-13 sat queued indefinitely with no runner assigned, leaving the
+# whole run "in progress" forever. Tick the "intel" input only if you know a
+# macos-13 runner is available to you.
 #
 # To get a build: Actions → "Build macOS" → Run workflow. When it finishes,
 # download the artifact for your Mac from the run's Artifacts section. Pushing a
-# v* tag builds both automatically.
+# v* tag builds Apple silicon automatically.
 #
 # The app is ad-hoc signed, not notarized (that needs a paid Apple Developer
 # account), so macOS quarantines it on first open. See desktop/README.md —
@@ -21,21 +27,38 @@ name: Build macOS
 
 on:
   workflow_dispatch:
+    inputs:
+      intel:
+        description: 'Also build for Intel Macs (needs a macos-13 runner — usually unavailable, the job will just sit queued)'
+        type: boolean
+        default: false
   push:
     tags: ['v*']
 
 jobs:
+  # Decide which architectures to build. A tiny Linux job so the expensive macOS
+  # runners are only claimed for architectures we can actually schedule.
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - id: pick
+        run: |
+          ARM='{"runner":"macos-14","arch":"arm64","label":"Apple-silicon"}'
+          INTEL='{"runner":"macos-13","arch":"x64","label":"Intel"}'
+          if [ "${{ inputs.intel }}" = "true" ]; then
+            echo "include=[$ARM,$INTEL]" >> "$GITHUB_OUTPUT"
+          else
+            echo "include=[$ARM]" >> "$GITHUB_OUTPUT"
+          fi
+
   macos:
+    needs: targets
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: macos-14
-            arch: arm64
-            label: Apple-silicon
-          - runner: macos-13
-            arch: x64
-            label: Intel
+        include: ${{ fromJSON(needs.targets.outputs.include) }}
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.label }} (${{ matrix.arch }})
     steps:

@@ -369,7 +369,7 @@ body::before {
   padding: 12px 22px 12px 66px;
   border-bottom: 1px solid var(--stone);
   background: var(--paper);
-  min-height: 64px;
+  min-height: 64px;   /* paired with .gr-analysis-head — keep the two in step */
 }
 .gr-brand { display: inline-flex; align-items: baseline; gap: 11px; }
 .gr-brand .mark {
@@ -513,14 +513,18 @@ body::before {
   background: var(--paper);
   overflow: hidden;
 }
+/* Same 64px as .gr-reader-bar, so both panes' content starts on one line.
+   min-height rather than height: dragging the resizer to an extreme still
+   wraps instead of clipping the tools. */
 .gr-analysis-head {
-  padding: 24px 36px 18px;
+  padding: 0 36px;
   border-bottom: 1px solid var(--stone);
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   justify-content: space-between;
   gap: 24px;
   flex-wrap: wrap;
+  min-height: 64px;
 }
 .gr-head-kicker {
   font-family: var(--en-serif);
@@ -530,6 +534,9 @@ body::before {
   letter-spacing: 0.02em;
   margin-bottom: 5px;
 }
+/* The page heading, now the first thing inside the scrolling body. */
+.gr-body-head { margin-bottom: 26px; }
+
 .gr-head-title {
   font-family: var(--zh-serif);
   font-size: 30px;
@@ -547,7 +554,7 @@ body::before {
   margin-top: 9px;
 }
 
-.gr-head-tools { display: flex; align-items: center; gap: 22px; }
+.gr-head-tools { display: flex; align-items: center; gap: 22px; flex: 0 0 auto; }
 .gr-tool-group { display: flex; align-items: center; gap: 9px; }
 .gr-tool-label {
   font-family: var(--mono);
@@ -779,14 +786,13 @@ body::before {
 }
 
 /* ════════ TABS (Reading / Notes) ════════ */
-.gr-head-main { display: flex; flex-direction: column; }
-.gr-tabs { display: flex; gap: 24px; margin-bottom: 12px; }
+.gr-tabs { display: flex; align-items: flex-end; gap: 24px; }
 .gr-tab {
   position: relative;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0 0 8px;
+  padding: 0 0 18px;
   font-family: var(--zh-serif);
   font-size: 15px;
   font-weight: 500;
@@ -1492,7 +1498,8 @@ body::before {
 }
 
 @media (max-width: 820px) {
-  .gr-analysis-head { flex-direction: column; align-items: flex-start; }
+  .gr-analysis-head { padding: 0 20px; }
+  .gr-head-tools { gap: 14px; }
   .gr-head-title { font-size: 24px; }
 }
 
@@ -1628,4 +1635,644 @@ body::before {
   background: var(--indigo-l);
   color: var(--indigo);
   border-color: var(--indigo-m);
+}
+
+/* ════════ FLOW · 心流 ════════ */
+
+/* ── shared modal shell (generalised from the share card) ── */
+.gr-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 92;
+  background: rgba(31, 29, 25, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  animation: gr-fade 0.18s ease;
+}
+.gr-modal {
+  background: var(--paper);
+  border: 1px solid var(--stone);
+  box-shadow: 0 24px 80px rgba(31, 29, 25, 0.3);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.gr-modal:focus { outline: none; }
+.gr-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--stone);
+}
+.gr-modal-title {
+  font-family: var(--zh-serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+.gr-modal-x {
+  background: none; border: none; cursor: pointer;
+  color: var(--ash); display: flex;
+  transition: color 0.2s ease;
+}
+.gr-modal-x:hover { color: var(--indigo); }
+.gr-modal-body { padding: 22px; overflow-y: auto; }
+.gr-modal-foot { padding: 14px 22px; border-top: 1px solid var(--stone); }
+
+/* ── press-and-hold to skip ── */
+.gr-hold-wrap { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.gr-hold {
+  position: relative;
+  overflow: hidden;
+  padding: 10px 20px;
+  border: 1px solid var(--silver);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+  touch-action: none;          /* pointer capture owns the gesture */
+  user-select: none;
+}
+.gr-hold:hover, .gr-hold.is-holding { border-color: var(--indigo); }
+.gr-hold-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--hold-progress, 0) * 100%);
+  background: var(--indigo-m);
+  pointer-events: none;
+}
+.gr-hold-text { position: relative; display: block; }
+.gr-hold-text .zh {
+  display: block;
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--graphite);
+}
+.gr-hold-text .en {
+  display: block;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-top: 4px;
+}
+.gr-hold-count {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+}
+
+/* ── thought dump ── */
+.gr-dump-lead .zh {
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--graphite);
+  letter-spacing: 0.03em;
+}
+.gr-dump-meta {
+  font-family: var(--en-serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--ash);
+  margin-top: 6px;
+}
+.gr-dump-last {
+  border-left: 2px solid var(--indigo-m);
+  padding: 10px 0 10px 14px;
+  margin: 16px 0;
+  background: var(--indigo-l);
+}
+.gr-dump-last-label {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 6px;
+}
+.gr-dump-last-next {
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  color: var(--ink);
+  line-height: 1.8;
+}
+.gr-dump-last-text {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--graphite);
+  line-height: 1.8;
+  margin-top: 4px;
+}
+.gr-dump-field { display: block; margin-top: 18px; }
+.gr-dump-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 7px;
+}
+.gr-dump-input {
+  width: 100%;
+  background: var(--paper-2);
+  border: 1px solid var(--silver);
+  padding: 11px 13px;
+  font-family: var(--zh-sans);
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--ink);
+  resize: vertical;
+}
+.gr-dump-input:focus { outline: none; border-color: var(--indigo); }
+.gr-app.is-zen .gr-dump-input { font-family: var(--zen); }
+.gr-dump-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+}
+.gr-dump-timer {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+}
+.gr-dump-timer b { color: var(--indigo); font-weight: 500; }
+.gr-dump-skip {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dotted var(--silver);
+  display: flex;
+  justify-content: center;
+}
+
+/* ── break lock ── */
+.gr-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  /* Fogged paper, not a black scrim: resting, not punished. */
+  background: rgba(241, 239, 233, 0.96);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: gr-fade 0.5s ease;
+}
+.gr-lock-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 40px;
+  text-align: center;
+}
+.gr-lock-kicker {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.gr-lock-cycle { margin-left: 12px; color: var(--silver); }
+
+.gr-breathe {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  display: grid;
+  place-items: center;
+}
+.gr-breathe-ring,
+.gr-breathe-core {
+  position: absolute;
+  border-radius: 50%;
+  /* ~5 breaths/min — coherent breathing. Pure CSS: zero JS per frame. */
+  animation: gr-breathe 12s ease-in-out infinite;
+}
+.gr-breathe-ring {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--indigo-m);
+}
+.gr-breathe-core {
+  width: 46%;
+  height: 46%;
+  background: var(--indigo-l);
+  border: 1px solid var(--indigo);
+  animation-delay: 0s;
+}
+@keyframes gr-breathe {
+  0%   { transform: scale(0.82); opacity: 0.55; }
+  42%  { transform: scale(1.14); opacity: 1; }
+  58%  { transform: scale(1.14); opacity: 1; }
+  100% { transform: scale(0.82); opacity: 0.55; }
+}
+.gr-breathe-cue {
+  position: relative;
+  height: 18px;
+  width: 100%;
+}
+.gr-cue {
+  position: absolute;
+  inset: 0;
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  letter-spacing: 0.4em;
+  color: var(--ash);
+  animation: gr-cue 12s ease-in-out infinite;
+}
+.gr-cue--out { animation-delay: -6s; }
+@keyframes gr-cue {
+  0%, 42%  { opacity: 1; }
+  50%, 92% { opacity: 0; }
+  100%     { opacity: 1; }
+}
+
+.gr-lock-clock {
+  font-family: var(--mono);
+  font-size: 34px;
+  font-weight: 300;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+}
+.gr-lock-bar {
+  width: 260px;
+  height: 3px;
+  background: var(--mist);
+  overflow: hidden;
+}
+.gr-lock-fill {
+  height: 100%;
+  background: var(--indigo);
+  transition: width 0.5s linear;
+}
+.gr-lock-note {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--ash);
+  letter-spacing: 0.04em;
+  max-width: 300px;
+}
+.gr-lock-skip { margin-top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gr-breathe-ring, .gr-breathe-core, .gr-cue { animation: none; }
+  .gr-cue--out { opacity: 0; }
+  .gr-lock { animation: none; }
+}
+
+/* ── focus timer chip ── */
+.gr-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 10px;
+  border: 1px solid var(--stone);
+  background: var(--paper-2);
+  margin-left: auto;   /* far right of the bar, with or without page controls */
+  flex: 0 0 auto;
+}
+.gr-timer.is-paused { opacity: 0.6; }
+.gr-timer-ring {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: conic-gradient(var(--indigo) calc(var(--timer-progress, 0) * 360deg), var(--mist) 0);
+}
+.gr-timer-clock {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+}
+.gr-timer-phase {
+  font-family: var(--zh-sans);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ash);
+}
+.gr-timer-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--ash);
+  display: flex;
+  transition: color 0.2s ease;
+}
+.gr-timer-btn:hover { color: var(--indigo); }
+
+/* ── sidebar: flow section ── */
+.gr-flow-stat {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ash);
+  padding: 7px 0;
+  border-bottom: 1px dotted var(--silver);
+}
+.gr-flow-stat b { color: var(--ink); font-weight: 500; }
+.gr-flow-stats { margin-top: 14px; }
+.gr-num-field { display: flex; align-items: center; gap: 8px; }
+.gr-num-field .gr-input { width: 68px; text-align: center; }
+.gr-num-field span {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--ash);
+}
+
+/* stale-schema notice (another window upgraded the database) */
+.gr-stale {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 210;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 11px 18px;
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  box-shadow: 0 6px 24px rgba(31, 29, 25, 0.28);
+}
+
+/* ════════ READING GUIDE ════════ */
+/* Mounted inside .react-pdf__Page, so these coordinates are page-local and
+   scale with the page. pointer-events: none keeps text selection untouched. */
+.gr-guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  z-index: 2;
+}
+.gr-guide-band,
+.gr-guide-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+.gr-guide-band {
+  /* multiply so it darkens the paper rather than washing it out */
+  mix-blend-mode: multiply;
+  /* Tint only the part of the line already covered, strongest right at the
+     cursor. A gradient fixed to the band would be darkest at the line's end,
+     which pulls the eye ahead of where you should be reading. */
+  background: linear-gradient(
+    90deg,
+    var(--indigo-l) 0%,
+    var(--indigo-m) calc(var(--guide-frac, 0) * 100%),
+    transparent calc(var(--guide-frac, 0) * 100% + 1.5%)
+  );
+}
+.gr-guide-edge {
+  width: 2px;
+  background: var(--indigo);
+  opacity: 0.85;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gr-guide { transition: none; }
+}
+
+/* ════════ METAPHOR + SOUND CONTROLS ════════ */
+.gr-meta {
+  border: 1px solid var(--stone);
+  border-left: 2px solid var(--indigo);
+  background: var(--paper-2);
+  padding: 18px 20px;
+  margin-bottom: 26px;
+  animation: gr-fade 0.3s ease;
+}
+.gr-meta-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.gr-meta-kicker {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--indigo);
+}
+.gr-meta-x {
+  background: none; border: none; cursor: pointer; color: var(--ash); display: flex;
+  transition: color 0.2s ease;
+}
+.gr-meta-x:hover { color: var(--indigo); }
+.gr-meta-src {
+  font-family: var(--en-serif);
+  font-size: 13px;
+  color: var(--ash);
+  line-height: 1.7;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px dotted var(--silver);
+}
+.gr-meta-wait, .gr-meta-err {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--ash);
+  letter-spacing: 0.04em;
+}
+.gr-meta-err { color: var(--indigo-d); }
+.gr-meta-main {
+  font-family: var(--zh-serif);
+  font-size: 16px;
+  line-height: 2;
+  color: var(--ink);
+  letter-spacing: 0.03em;
+}
+.gr-app.is-zen .gr-meta-main { font-family: var(--zen); font-weight: 500; }
+.gr-meta-plain {
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  line-height: 1.95;
+  color: var(--graphite);
+  margin-top: 10px;
+}
+.gr-app.is-zen .gr-meta-plain { font-family: var(--zen); }
+.gr-meta-map { margin-top: 14px; }
+.gr-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--graphite);
+  padding: 4px 0;
+}
+.gr-meta-row .a { color: var(--indigo); font-family: var(--mono); }
+.gr-meta-row .f { color: var(--ash); }
+.gr-meta-caution {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dotted var(--silver);
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--graphite);
+}
+.gr-meta-caution .lbl {
+  display: block;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 5px;
+}
+
+/* sliders — square, to match everything else */
+.gr-range {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: var(--mist);
+  outline: none;
+  margin-top: 4px;
+}
+.gr-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  background: var(--indigo);
+  cursor: pointer;
+  border: none;
+}
+.gr-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  background: var(--indigo);
+  cursor: pointer;
+  border: none;
+  border-radius: 0;
+}
+.gr-upload--slim { padding: 11px 14px; margin-bottom: 14px; }
+
+/* ════════ ASSOCIATIVE NOTES + PRETEND PLAY ════════ */
+.gr-pretend { border-left-color: var(--graphite); }
+.gr-pretend-who {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.gr-pretend-who .lbl {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--ash);
+  letter-spacing: 0.06em;
+}
+.gr-pretend-pick { flex: 0 0 auto; font-family: var(--zh-sans); font-size: 12px; padding: 6px 8px; }
+.gr-pretend-custom { flex: 1 1 160px; font-family: var(--zh-sans); font-size: 12px; padding: 6px 9px; }
+
+.gr-note-tag--vault {
+  background: transparent;
+  color: var(--indigo);
+  border: 1px solid var(--indigo-m);
+}
+.gr-note-act:disabled { opacity: 0.35; cursor: wait; }
+
+.gr-note-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.gr-note-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--zh-sans);
+  font-size: 11px;
+  color: var(--graphite);
+  border: 1px dotted var(--silver);
+  padding: 2px 7px;
+}
+
+.gr-assoc {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 1px solid var(--stone);
+  border-left: 2px solid var(--indigo);
+  animation: gr-fade 0.3s ease;
+}
+.gr-assoc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--indigo);
+  margin-bottom: 10px;
+}
+.gr-assoc-note {
+  font-family: var(--zh-sans);
+  font-size: 11px;
+  color: var(--ash);
+  margin-bottom: 10px;
+  line-height: 1.7;
+}
+.gr-assoc-item {
+  padding: 11px 0;
+  border-top: 1px dotted var(--silver);
+}
+.gr-assoc-item:first-of-type { border-top: none; }
+.gr-assoc-title {
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gr-assoc-dormant {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+  border: 1px solid var(--silver);
+  padding: 1px 5px;
+}
+.gr-assoc-why, .gr-assoc-bridge {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  line-height: 1.85;
+  color: var(--graphite);
+  margin: 6px 0 8px;
+}
+.gr-assoc-bridge { color: var(--ash); font-size: 11px; }
+.gr-app.is-zen .gr-assoc-why { font-family: var(--zen); }
+
+.gr-vault-path {
+  word-break: break-all;
+  font-size: 10px;
+  margin-bottom: 14px;
 }
