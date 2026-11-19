@@ -45,7 +45,7 @@ function App() {
     // Reading preferences
     const [fontMode, setFontMode] = useState('default'); // 'default' | 'zen'
     const [highlightedText, setHighlightedText] = useState('');
-    const [highlightColor, setHighlightColor] = useState('rgba(193, 95, 60, 0.22)'); // 朱 vermilion
+    const [highlightColor, setHighlightColor] = useState('rgba(227, 6, 19, 0.20)'); // 紅 Swiss red
 
     // Notes State (per-document)
     const [activeTab, setActiveTab] = useState('reading'); // 'reading' | 'notes'
@@ -1078,7 +1078,7 @@ function App() {
                                         )}
                                         {bookJob.status === 'done' && (
                                             <>
-                                                <div className="gr-book-line gr-book-done">✓ 已生成 · {fmtBytes(bookJob.bytes)}</div>
+                                                <div className="gr-book-line gr-book-done">已生成 · {fmtBytes(bookJob.bytes)}</div>
                                                 {window.gr ? (
                                                     <button className="gr-side-btn" onClick={revealBook}>
                                                         <span className="zh">在 Finder 顯示</span>
@@ -1252,16 +1252,16 @@ function App() {
                             <div className="gr-tool-group">
                                 <span className="gr-tool-label">標</span>
                                 <button
-                                    className={`gr-swatch ${highlightColor.includes('95, 60') ? 'is-active' : ''}`}
-                                    style={{ background: 'rgba(193, 95, 60, 0.45)' }}
-                                    onClick={() => setHighlightColor('rgba(193, 95, 60, 0.22)')}
-                                    title="朱 · Vermilion"
+                                    className={`gr-swatch ${highlightColor.includes('227') ? 'is-active' : ''}`}
+                                    style={{ background: 'rgba(227, 6, 19, 0.5)' }}
+                                    onClick={() => setHighlightColor('rgba(227, 6, 19, 0.20)')}
+                                    title="紅 · Red"
                                 />
                                 <button
-                                    className={`gr-swatch ${highlightColor.includes('124, 115') ? 'is-active' : ''}`}
-                                    style={{ background: 'rgba(128, 124, 115, 0.45)' }}
-                                    onClick={() => setHighlightColor('rgba(128, 124, 115, 0.28)')}
-                                    title="鋼灰 · Steel"
+                                    className={`gr-swatch ${highlightColor.includes('204') ? 'is-active' : ''}`}
+                                    style={{ background: 'rgba(255, 204, 0, 0.7)' }}
+                                    onClick={() => setHighlightColor('rgba(255, 204, 0, 0.40)')}
+                                    title="黃 · Yellow"
                                 />
                             </div>
                         )}
@@ -1270,7 +1270,7 @@ function App() {
                         <button
                             className={`gr-btn ${fontMode === 'zen' ? 'gr-btn--solid' : ''}`}
                             onClick={() => setFontMode(fontMode === 'default' ? 'zen' : 'default')}
-                            title="切換 Zen Maru Gothic 字體"
+                            title={fontMode === 'zen' ? '還原字級 · Reset reading size' : '放大閱讀字級 · Larger reading text'}
                         >
                             Aa
                         </button>
@@ -1412,7 +1412,7 @@ function App() {
                                                     <div className="gr-digest-opp-head">
                                                         <span className="gr-digest-opp-name">{item.title}</span>
                                                         <span className={`gr-digest-badge gr-digest-badge--${item.status}`}>
-                                                            {item.status === 'open' ? '✅ 開放' : item.status === 'rolling' ? '♻ 滾動' : item.status === 'upcoming' ? '⏳ 即將' : '⚠ 截止'}
+                                                            {item.status === 'open' ? '開放' : item.status === 'rolling' ? '滾動' : item.status === 'upcoming' ? '即將' : '截止'}
                                                         </span>
                                                     </div>
                                                     <div className="gr-digest-opp-meta">

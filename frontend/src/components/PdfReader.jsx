@@ -221,7 +221,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onDocumentLoad, highlightedT
         if (!needle) return;
 
         const { ranges, normalized, normToOrig } = index;
-        const color = highlightColor || 'rgba(193, 95, 60, 0.22)';
+        const color = highlightColor || 'rgba(227, 6, 19, 0.20)';
         const styled = [];
         let firstHit = null;
 
