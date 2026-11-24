@@ -1,6 +1,6 @@
 // Render a note into a shareable, on-brand quote card (canvas → PNG).
 // Pure canvas drawing: no dependencies, crisp output, full control over the
-// 昀慶手拙 concrete + vermilion aesthetic.
+// app's International Style: one grotesque, black, white and one red.
 
 export const CARD_SIZES = {
     square: { w: 1080, h: 1080, label: '方形 1:1' },
@@ -10,33 +10,35 @@ export const CARD_SIZES = {
 
 const THEMES = {
     paper: {
-        bg: '#EAE8E2',
-        ink: '#1F1D19',
-        graphite: '#565347',
-        ash: '#807C73',
-        hair: '#BBB8AE',
-        accent: '#C15F3C',
-        sealText: '#F1EFE9',
-        grain: '48,48,46',
-        grainAlpha: 0.05,
+        bg: '#FFFFFF',
+        ink: '#111111',
+        graphite: '#3C3C3C',
+        ash: '#767676',
+        hair: '#111111',
+        accent: '#E2001A',
+        sealText: '#FFFFFF',
+        grain: '0,0,0',
+        grainAlpha: 0,
     },
     sumi: {
-        bg: '#0E0D0B',
-        ink: '#F1EFE9',
-        graphite: 'rgba(241,239,233,0.78)',
-        ash: 'rgba(241,239,233,0.5)',
-        hair: 'rgba(241,239,233,0.22)',
-        accent: '#E0A188',
-        sealBg: '#C15F3C',
-        sealText: '#F1EFE9',
+        bg: '#111111',
+        ink: '#FFFFFF',
+        graphite: 'rgba(255,255,255,0.82)',
+        ash: 'rgba(255,255,255,0.55)',
+        hair: 'rgba(255,255,255,0.9)',
+        accent: '#E2001A',
+        sealBg: '#E2001A',
+        sealText: '#FFFFFF',
         grain: '255,255,255',
-        grainAlpha: 0.035,
+        grainAlpha: 0,
     },
 };
 
-const ZH_SERIF = "'Noto Serif TC', serif";
-const EN_SERIF = "'EB Garamond', serif";
-const MONO = "'JetBrains Mono', monospace";
+// Names kept from the serif era; all three now point at the app's one family.
+const SANS = "'Inter', 'Noto Sans TC', sans-serif";
+const ZH_SERIF = SANS;
+const EN_SERIF = SANS;
+const MONO = SANS;
 
 const isCJK = (ch) => /[　-鿿぀-ヿ＀-￯]/.test(ch);
 
@@ -69,6 +71,7 @@ function wrapLines(ctx, text, maxWidth) {
 }
 
 function grain(ctx, w, h, theme) {
+    if (!theme.grainAlpha) return;
     ctx.save();
     for (let i = 0; i < Math.round((w * h) / 220); i++) {
         ctx.fillStyle = `rgba(${theme.grain},${theme.grainAlpha * Math.random()})`;
@@ -109,7 +112,7 @@ export function renderCard(canvas, note, opts = {}) {
     ctx.fillText('昀', sealX + sealS / 2, sealY + sealS / 2 + 21);
     ctx.textAlign = 'left';
     ctx.fillStyle = theme.ink;
-    ctx.font = `italic 600 34px ${EN_SERIF}`;
+    ctx.font = `700 34px ${EN_SERIF}`;
     ctx.fillText("Yun's Reader", sealX + sealS + 26, sealY + 38);
     ctx.fillStyle = theme.ash;
     ctx.font = `400 20px ${ZH_SERIF}`;
@@ -118,7 +121,7 @@ export function renderCard(canvas, note, opts = {}) {
     // ── big quote mark ──
     ctx.fillStyle = theme.accent;
     ctx.globalAlpha = 0.5;
-    ctx.font = `italic 240px ${EN_SERIF}`;
+    ctx.font = `700 240px ${EN_SERIF}`;
     ctx.fillText('“', M - 12, M + 290);
     ctx.globalAlpha = 1;
 
@@ -144,7 +147,7 @@ export function renderCard(canvas, note, opts = {}) {
         const enSize = Math.round(zhSize * 0.66);
         enLineH = Math.round(enSize * 1.4);
         if (enText) {
-            ctx.font = `italic 400 ${enSize}px ${EN_SERIF}`;
+            ctx.font = `400 ${enSize}px ${EN_SERIF}`;
             enLines = wrapLines(ctx, enText, textW);
         }
         const total = zhLines.length * zhLineH + (enText ? 28 + enLines.length * enLineH : 0)
@@ -161,7 +164,7 @@ export function renderCard(canvas, note, opts = {}) {
     if (enText) {
         y += 18;
         const enSize = Math.round(zhSize * 0.66);
-        ctx.font = `italic 400 ${enSize}px ${EN_SERIF}`;
+        ctx.font = `400 ${enSize}px ${EN_SERIF}`;
         ctx.fillStyle = theme.ash;
         for (const ln of enLines) { ctx.fillText(ln, textX, y); y += enLineH; }
     }

@@ -25,7 +25,7 @@ export const DEFAULTS = Object.freeze({
         voice: 'Kore',
         speed: 1.0,
         engine: 'gemini',
-        highlightColor: 'rgba(193, 95, 60, 0.22)',
+        highlightColor: 'rgba(226, 0, 26, 0.16)',
     },
 
     read: { translationMode: 'sentence', summaryLength: 500, persona: '你的指導教授' },

@@ -1855,16 +1855,16 @@ function App() {
                             <div className="gr-tool-group">
                                 <span className="gr-tool-label">標</span>
                                 <button
-                                    className={`gr-swatch ${highlightColor.includes('95, 60') ? 'is-active' : ''}`}
-                                    style={{ background: 'rgba(193, 95, 60, 0.45)' }}
-                                    onClick={() => setHighlightColor('rgba(193, 95, 60, 0.22)')}
-                                    title="朱 · Vermilion"
+                                    className={`gr-swatch ${/0, 26|95, 60/.test(highlightColor) ? 'is-active' : ''}`}
+                                    style={{ background: 'rgba(226, 0, 26, 0.40)' }}
+                                    onClick={() => setHighlightColor('rgba(226, 0, 26, 0.16)')}
+                                    title="紅 · Red"
                                 />
                                 <button
-                                    className={`gr-swatch ${highlightColor.includes('124, 115') ? 'is-active' : ''}`}
-                                    style={{ background: 'rgba(128, 124, 115, 0.45)' }}
-                                    onClick={() => setHighlightColor('rgba(128, 124, 115, 0.28)')}
-                                    title="鋼灰 · Steel"
+                                    className={`gr-swatch ${/118, 118|124, 115/.test(highlightColor) ? 'is-active' : ''}`}
+                                    style={{ background: 'rgba(118, 118, 118, 0.45)' }}
+                                    onClick={() => setHighlightColor('rgba(118, 118, 118, 0.24)')}
+                                    title="灰 · Grey"
                                 />
                             </div>
                         )}

@@ -1,31 +1,38 @@
 /* ════════════════════════════════════════════════════════════════
    Yun's Reader · 昀氏閱讀
-   Visual system — 昀慶手拙 / Fair-faced Concrete + Vermilion
-   留白即內容 · 靜中見質
+   Visual system — International Typographic Style
+   One grotesque, black on white, one red. Rules and a left edge, not boxes.
    ════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* ── Palette · 清水混凝土系灰階 / Fair-faced Concrete ── */
-  --paper:    #F1EFE9;  /* base · 養生 */
-  --paper-2:  #EAE8E2;  /* card surface · 清水 */
-  --mist:     #D6D3CB;  /* recessed surface · 灰霧 */
-  --stone:    #BBB8AE;  /* divider · 礫石 */
-  --silver:   #A6A399;  /* hairline · 銀灰 */
-  --ash:      #807C73;  /* caption · 鋼灰 */
-  --graphite: #565347;  /* body · 鉛灰 */
-  --ink:      #1F1D19;  /* main · 墨黑 */
-  --sumi:     #0E0D0B;  /* deepest · 深墨 */
-  --indigo:   #C15F3C;  /* accent · 朱 shu */
-  --indigo-d: #9E4B2E;  /* accent dark */
-  --indigo-l: rgba(193, 95, 60, 0.08);
-  --indigo-m: rgba(193, 95, 60, 0.16);
+  /* ── Palette · neutral greys, one red ──
+     Variable names are kept from the earlier palette so the ~100 rules that
+     use them don't churn; only the values changed. --indigo is the accent. */
+  --paper:    #FFFFFF;  /* base */
+  --paper-2:  #F4F4F4;  /* card surface */
+  --mist:     #E4E4E4;  /* recessed surface */
+  --stone:    #CFCFCF;  /* divider */
+  --silver:   #A8A8A8;  /* hairline */
+  --ash:      #767676;  /* caption (4.5:1 on white) */
+  --graphite: #3C3C3C;  /* body */
+  --ink:      #111111;  /* main */
+  --sumi:     #000000;  /* deepest */
+  --indigo:   #E2001A;  /* accent · Swiss red */
+  --indigo-d: #B50015;  /* accent dark */
+  --indigo-l: rgba(226, 0, 26, 0.06);
+  --indigo-m: rgba(226, 0, 26, 0.14);
 
-  /* ── Type stack ── */
-  --zh-serif: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif;
-  --zh-sans:  'Noto Sans TC', system-ui, sans-serif;
-  --en-serif: 'EB Garamond', 'Cormorant Garamond', Georgia, serif;
-  --mono:     'JetBrains Mono', 'Courier New', monospace;
-  --zen:      'Zen Maru Gothic', sans-serif;
+  /* ── Type stack · one grotesque family ──
+     The serif/mono names stay as aliases so every rule inherits the switch. */
+  --zh-sans:  'Inter', 'Noto Sans TC', 'PingFang TC', system-ui, sans-serif;
+  --zh-serif: var(--zh-sans);
+  --en-serif: var(--zh-sans);
+  --mono:     var(--zh-sans);
+  --zen:      var(--zh-sans);
+
+  /* ── Grid ── */
+  --rule:     2px solid var(--ink);   /* structural rule */
+  --hair:     1px solid var(--stone); /* quiet division */
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -36,7 +43,7 @@ body {
   font-family: var(--zh-sans);
   background: var(--paper);
   color: var(--ink);
-  font-weight: 300;
+  font-weight: 400;
   line-height: 1.6;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -44,22 +51,12 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Subtle concrete grain — aggregate dust on a polished surface */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  opacity: 0.30;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.30 0 0 0 0 0.30 0 0 0 0 0.29 0 0 0 0.10 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
 
 #root { width: 100vw; height: 100vh; position: relative; z-index: 2; }
 
 ::selection { background: var(--indigo-m); color: var(--ink); }
 
-/* ── Scrollbar · concrete ── */
+/* ── Scrollbar ── */
 .gr-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
 .gr-scroll::-webkit-scrollbar-track { background: transparent; }
 .gr-scroll::-webkit-scrollbar-thumb { background: var(--stone); }
@@ -99,7 +96,7 @@ body::before {
 .gr-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(31, 29, 25, 0.28);
+  background: rgba(17, 17, 17, 0.28);
   z-index: 54;
   opacity: 0;
   pointer-events: none;
@@ -121,12 +118,12 @@ body::before {
   padding: 70px 26px 32px;
   overflow-y: auto;
 }
-.gr-sidebar.is-open { transform: translateX(0); box-shadow: 2px 0 50px rgba(31, 29, 25, 0.14); }
+.gr-sidebar.is-open { transform: translateX(0); }
 
 .gr-side-head { margin-bottom: 14px; }
 .gr-side-mark {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 21px;
   font-weight: 600;
   color: var(--ink);
@@ -182,7 +179,7 @@ body::before {
 .gr-side-toggle:hover .zh { color: var(--indigo); }
 .gr-side-en {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 12px;
   color: var(--ash);
   margin: 4px 0 0 34px;
@@ -238,7 +235,7 @@ body::before {
   cursor: pointer;
   font-family: var(--zh-sans);
   font-size: 13px;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: 0.02em;
   color: var(--graphite);
   white-space: nowrap;
@@ -263,7 +260,7 @@ body::before {
 .gr-file-del:hover { color: var(--indigo); }
 .gr-file-empty {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 13px;
   color: var(--silver);
   text-align: center;
@@ -322,7 +319,7 @@ body::before {
 }
 .gr-len-btn .v {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 17px;
   color: var(--graphite);
   line-height: 1;
@@ -374,7 +371,7 @@ body::before {
 .gr-brand { display: inline-flex; align-items: baseline; gap: 11px; }
 .gr-brand .mark {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 20px;
   font-weight: 600;
   color: var(--ink);
@@ -401,7 +398,7 @@ body::before {
 }
 .gr-page-ind b {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-weight: 500;
   font-size: 16px;
   color: var(--indigo);
@@ -451,7 +448,7 @@ body::before {
      surround stays clean instead of a deep concrete grey. */
   background: var(--paper-2);
 }
-.gr-doc { box-shadow: 0 3px 28px rgba(31, 29, 25, 0.16); border: 1px solid var(--stone); }
+.gr-doc { border: 1px solid var(--stone); }
 
 /* empty / placeholder */
 .gr-empty {
@@ -474,7 +471,7 @@ body::before {
 }
 .gr-empty .en {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 20px;
   color: var(--silver);
 }
@@ -528,7 +525,7 @@ body::before {
 }
 .gr-head-kicker {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 13px;
   color: var(--indigo);
   letter-spacing: 0.02em;
@@ -548,7 +545,7 @@ body::before {
 .gr-head-sub {
   font-family: var(--zh-sans);
   font-size: 12.5px;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: 0.04em;
   color: var(--ash);
   margin-top: 9px;
@@ -617,7 +614,7 @@ body::before {
   left: 24px;
   top: 25px;
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 15px;
   color: var(--silver);
   transition: color 0.25s ease;
@@ -664,7 +661,7 @@ body::before {
 }
 .gr-entry-glossary-alt {
   color: var(--silver);
-  font-style: italic;
+  font-style: normal;
   letter-spacing: 0;
 }
 .gr-entry-zh {
@@ -704,7 +701,7 @@ body::before {
   top: -6px;
   left: 22px;
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 64px;
   color: var(--indigo);
   opacity: 0.28;
@@ -713,7 +710,7 @@ body::before {
 .gr-summary-text {
   font-family: var(--zh-serif);
   font-size: 17px;
-  font-weight: 300;
+  font-weight: 400;
   line-height: 2.1;
   letter-spacing: 0.05em;
   color: var(--ink);
@@ -732,7 +729,7 @@ body::before {
 }
 .gr-loading .en {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 18px;
   color: var(--indigo);
   letter-spacing: 0.02em;
@@ -805,7 +802,7 @@ body::before {
 }
 .gr-tab em {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 11px;
   color: var(--silver);
   letter-spacing: 0.02em;
@@ -1006,7 +1003,6 @@ body::before {
   padding: 11px 20px;
   background: var(--paper-2);
   border-top: 1px solid var(--stone);
-  box-shadow: 0 -6px 26px rgba(31, 29, 25, 0.10);
   z-index: 15;
 }
 .gr-audio-transport { display: flex; align-items: center; gap: 8px; }
@@ -1196,7 +1192,7 @@ body::before {
   display: block;
   margin-top: 12px;
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 13px;
   color: var(--indigo);
   text-decoration: none;
@@ -1308,7 +1304,7 @@ body::before {
 }
 .gr-zot-item .m {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 11px;
   color: var(--ash);
 }
@@ -1353,7 +1349,6 @@ body::before {
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-  box-shadow: 0 2px 16px rgba(31, 29, 25, 0.12);
 }
 .gr-reader:hover .gr-gutter { opacity: 0.75; }
 .gr-gutter:hover { opacity: 1 !important; color: var(--indigo); border-color: var(--indigo); }
@@ -1367,7 +1362,6 @@ body::before {
   transform: translate(-50%, -100%);
   display: flex;
   background: var(--ink);
-  box-shadow: 0 6px 24px rgba(31, 29, 25, 0.28);
   animation: gr-fade 0.12s ease;
 }
 .gr-sel-pop::after {
@@ -1386,7 +1380,7 @@ body::before {
   gap: 6px;
   background: none;
   border: none;
-  border-right: 1px solid rgba(241, 239, 233, 0.18);
+  border-right: 1px solid rgba(255, 255, 255, 0.18);
   color: var(--paper);
   font-family: var(--zh-sans);
   font-size: 13px;
@@ -1403,7 +1397,7 @@ body::before {
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: rgba(31, 29, 25, 0.42);
+  background: rgba(17, 17, 17, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1413,7 +1407,6 @@ body::before {
 .gr-share {
   background: var(--paper);
   border: 1px solid var(--stone);
-  box-shadow: 0 24px 80px rgba(31, 29, 25, 0.3);
   width: min(540px, 96vw);
   max-height: 92vh;
   display: flex;
@@ -1452,7 +1445,6 @@ body::before {
   max-height: 52vh;
   width: auto;
   height: auto;
-  box-shadow: 0 6px 30px rgba(31, 29, 25, 0.22);
   border: 1px solid var(--stone);
 }
 
@@ -1530,7 +1522,7 @@ body::before {
   background: var(--paper-2);
   border: 1px solid var(--mist);
   border-left: 3px solid var(--stone);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 14px 16px;
   margin-bottom: 10px;
   display: flex;
@@ -1561,7 +1553,7 @@ body::before {
   font-size: 10px;
   font-weight: 600;
   padding: 2px 7px;
-  border-radius: 20px;
+  border-radius: 0;
   white-space: nowrap;
   flex-shrink: 0;
   background: var(--mist);
@@ -1592,7 +1584,7 @@ body::before {
 .gr-digest-article {
   background: var(--paper-2);
   border: 1px solid var(--mist);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 16px 18px;
   margin-bottom: 14px;
   display: flex;
@@ -1644,7 +1636,7 @@ body::before {
   position: fixed;
   inset: 0;
   z-index: 92;
-  background: rgba(31, 29, 25, 0.42);
+  background: rgba(17, 17, 17, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1654,7 +1646,6 @@ body::before {
 .gr-modal {
   background: var(--paper);
   border: 1px solid var(--stone);
-  box-shadow: 0 24px 80px rgba(31, 29, 25, 0.3);
   max-height: 92vh;
   display: flex;
   flex-direction: column;
@@ -1738,7 +1729,7 @@ body::before {
 }
 .gr-dump-meta {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 12px;
   color: var(--ash);
   margin-top: 6px;
@@ -1821,8 +1812,8 @@ body::before {
   inset: 0;
   z-index: 200;
   /* Fogged paper, not a black scrim: resting, not punished. */
-  background: rgba(241, 239, 233, 0.96);
-  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.97);
+  
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1901,7 +1892,7 @@ body::before {
 .gr-lock-clock {
   font-family: var(--mono);
   font-size: 34px;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: 0.16em;
   color: var(--ink);
 }
@@ -2008,7 +1999,6 @@ body::before {
   font-family: var(--zh-sans);
   font-size: 12px;
   letter-spacing: 0.06em;
-  box-shadow: 0 6px 24px rgba(31, 29, 25, 0.28);
 }
 
 /* ════════ READING GUIDE ════════ */
@@ -2276,3 +2266,130 @@ body::before {
   font-size: 10px;
   margin-bottom: 14px;
 }
+
+/* ════════════════════════════════════════════════════════════════
+   INTERNATIONAL TYPOGRAPHIC STYLE
+   One grotesque family, black on white with a single red, square
+   corners, no shadows. Structure comes from rules, a left edge and
+   type size and weight, not from boxes and depth. Everything above
+   still holds; this block only overrides what the style changes.
+   ════════════════════════════════════════════════════════════════ */
+
+body { font-weight: 400; line-height: 1.55; font-feature-settings: 'cv11', 'ss01'; }
+
+/* numbers line up in columns wherever they are data */
+.gr-page-ind, .gr-zoom-val, .gr-entry-n, .gr-side-toggle .num, .gr-tab-count,
+.gr-timer, .gr-len-btn .v, .gr-range-val { font-variant-numeric: tabular-nums; }
+
+/* ── structural rules: the two pane headers sit on one black line ── */
+.gr-reader-bar, .gr-analysis-head { border-bottom: var(--rule); }
+.gr-reader { border-right-color: var(--ink); }
+.gr-resizer { background: var(--ink); }
+.gr-resizer:hover, .gr-resizer.is-dragging { background: var(--indigo); }
+
+/* ── wordmark ── */
+.gr-brand { gap: 12px; }
+.gr-brand .mark, .gr-side-mark { font-weight: 700; letter-spacing: -0.02em; }
+.gr-brand .mark { font-size: 19px; }
+.gr-brand .zh { font-weight: 500; letter-spacing: 0.04em; color: var(--ink); border-left-color: var(--ink); }
+.gr-side-mark { font-size: 26px; line-height: 1.1; }
+.gr-side-sub { letter-spacing: 0.08em; font-weight: 500; }
+
+/* ── controls: black outline, inverts on hover ── */
+.gr-btn {
+  font-size: 12px; font-weight: 500; letter-spacing: 0.04em;
+  border-color: var(--ink); color: var(--ink);
+}
+.gr-btn:hover:not(:disabled) { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.gr-btn--accent:hover:not(:disabled) { background: var(--indigo-d); border-color: var(--indigo-d); }
+.gr-menu-btn { background: var(--paper); border-color: var(--ink); color: var(--ink); }
+.gr-menu-btn:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.gr-seg { border-color: var(--ink); }
+.gr-seg button { border-right-color: var(--ink); color: var(--ink); letter-spacing: 0.04em; font-weight: 500; }
+.gr-seg button.is-active { background: var(--ink); color: var(--paper); }
+.gr-page-ind { color: var(--ink); letter-spacing: 0.02em; }
+.gr-page-ind b { font-weight: 700; font-size: 15px; }
+.gr-input, .gr-note-input { border-color: var(--ink); background: var(--paper); }
+.gr-input:focus, .gr-note-input:focus { outline: none; border-color: var(--indigo); box-shadow: inset 0 0 0 1px var(--indigo); }
+
+/* ── tabs ── */
+.gr-tab { font-weight: 700; font-size: 15px; letter-spacing: 0.02em; }
+.gr-tab em { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.gr-tab.is-active::after { height: 4px; bottom: -2px; }
+
+/* ── headings: big, bold, flush left ── */
+.gr-head-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+.gr-head-title { font-size: 40px; letter-spacing: -0.01em; line-height: 1.1; }
+.gr-head-sub { font-size: 13px; letter-spacing: 0.01em; color: var(--graphite); margin-top: 10px; }
+.gr-body-head { margin-bottom: 32px; padding-bottom: 24px; border-bottom: var(--hair); }
+
+/* ── empty states: a large figure set flush left, not a centred seal ── */
+.gr-empty { align-items: flex-start; text-align: left; padding: 48px 56px; gap: 8px; }
+.gr-empty .glyph { font-size: 128px; font-weight: 700; color: var(--mist); letter-spacing: -0.04em; }
+.gr-empty .en { font-size: 24px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+.gr-empty .zh { font-size: 15px; letter-spacing: 0.04em; color: var(--graphite); }
+.gr-empty .hint { font-size: 11px; font-weight: 500; letter-spacing: 0.08em; color: var(--ash); margin-top: 16px; }
+
+/* ── sidebar: the 01–09 numbers carry the structure ── */
+.gr-sidebar { background: var(--paper); border-right: var(--rule); }
+.gr-side-sec { border-top: 1px solid var(--ink); padding: 18px 0 20px; }
+.gr-side-toggle { align-items: center; }
+.gr-side-toggle .grp { gap: 0; align-items: baseline; }
+.gr-side-toggle .num { width: 44px; flex: 0 0 44px; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+.gr-side-toggle .zh { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; }
+.gr-side-toggle:hover .zh { color: var(--ink); }
+.gr-side-toggle:hover .num { color: var(--ink); }
+.gr-side-en { margin-left: 44px; font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.gr-side-btn { border-color: var(--ink); }
+.gr-side-btn:hover { background: var(--ink); border-color: var(--ink); }
+.gr-side-btn:hover .zh, .gr-side-btn:hover .en { color: var(--paper); }
+.gr-side-btn .en, .gr-upload .en { letter-spacing: 0.08em; font-weight: 500; }
+.gr-upload { border: 1px solid var(--ink); align-items: flex-start; text-align: left; }
+.gr-upload .zh { letter-spacing: 0.02em; font-weight: 500; color: var(--ink); }
+.gr-file { border-bottom: var(--hair); }
+.gr-len-btn { border-color: var(--ink); }
+.gr-len-btn .v { font-weight: 700; }
+
+/* ── entries: a ruled list, not a stack of cards ── */
+.gr-cards { gap: 0; }
+.gr-entry {
+  background: transparent; border: none; border-top: 1px solid var(--ink);
+  padding: 20px 8px 24px 56px;
+}
+.gr-cards .gr-entry:last-child { border-bottom: 1px solid var(--ink); }
+.gr-entry:hover { background: var(--paper-2); border-color: var(--ink); }
+.gr-entry.is-active { background: var(--indigo-l); border-color: var(--ink); }
+.gr-entry.is-active::before { width: 4px; }
+.gr-entry-n { left: 12px; top: 22px; font-size: 13px; font-weight: 700; color: var(--ash); }
+.gr-entry-en { font-size: 18px; line-height: 1.55; letter-spacing: -0.005em; }
+.gr-entry-rule { margin: 14px 0; }
+.gr-entry-zh, .gr-summary-text { font-size: 16px; line-height: 1.9; letter-spacing: 0.02em; }
+.gr-summary { background: transparent; border: none; border-left: 4px solid var(--indigo); padding: 8px 0 8px 28px; }
+.gr-summary::before { display: none; }
+
+/* ── loading / errors ── */
+.gr-loading .en { font-size: 16px; font-weight: 700; }
+.gr-loading .zh { letter-spacing: 0.04em; }
+.gr-error { border-left-width: 4px; }
+
+/* ── floating surfaces: a black edge instead of a shadow ── */
+.gr-sel-pop, .gr-modal, .gr-share, .gr-stale { border: 1px solid var(--ink); }
+.gr-audiobar { border-top: var(--rule); }
+.gr-doc { border-color: var(--stone); }
+.gr-backdrop.is-open, .gr-modal-backdrop, .gr-share-backdrop { background: rgba(255, 255, 255, 0.72); }
+/* filled buttons keep their own colours over the outline default above */
+.gr-btn--solid { background: var(--ink); color: var(--paper); }
+.gr-btn--accent { background: var(--indigo); border-color: var(--indigo); color: var(--paper); }
+.gr-btn--solid:hover:not(:disabled) { background: var(--indigo); border-color: var(--indigo); color: var(--paper); }
+/* the analysis empty state shares the body's left edge */
+.gr-analysis-body .gr-empty { padding-left: 0; padding-right: 0; }
+/* the upload target in the empty reader: a plain ruled box */
+.gr-empty .gr-upload { padding: 20px 24px; min-width: 280px; }
+.gr-empty .gr-upload .en { font-size: 11px; color: var(--ash); }
+/* notes: the same ruled list as the reading entries */
+.gr-note { background: transparent; border: none; border-top: 1px solid var(--ink); padding: 16px 0 20px; }
+.gr-note:last-child { border-bottom: 1px solid var(--ink); }
+.gr-note-time { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; color: var(--ink); }
+.gr-note-text { font-size: 16px; line-height: 1.8; letter-spacing: 0.02em; }
+.gr-note-tag { letter-spacing: 0.06em; font-weight: 700; }
+.gr-notes-list { gap: 0; }
