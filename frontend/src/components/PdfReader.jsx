@@ -12,7 +12,7 @@ import GuideCursor from './GuideCursor';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
-const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onPretend, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
+const PdfReader = ({ onFileUpload, onTextSelect, onReadSelection, onExplain, onPretend, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -114,28 +114,66 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onPretend, onDocu
         }
     };
 
+    // The empty page's "open a PDF" button. When the app handles uploads, hand
+    // the file over so it is saved to the library like any other: otherwise
+    // the PDF shows, but notes, the remembered page and offline reading all
+    // have no document to attach to.
     const onFileChange = (event) => {
         autoFitDoneRef.current = false;
+        if (onFileUpload) { onFileUpload(event); return; }
         setFile(event.target.files[0]);
     };
 
     // Selection → show an intentful popup (translate / read aloud) instead of
     // firing a translation on every mouse-up.
-    const handleMouseUp = () => {
+    //
+    // A mouse finishes a selection with mouseup. A finger on an iPad does not:
+    // the user long-presses, drags the handles, and lifts, and no mouseup is
+    // guaranteed. So the popup is also driven by `selectionchange`, once the
+    // selection has been still for a moment. The text is captured right here,
+    // because tapping a popup button can clear the live selection first.
+    const showPopupForSelection = useCallback(() => {
         const selection = window.getSelection();
         const text = selection ? selection.toString().trim() : '';
-        if (text.length > 1 && selection.rangeCount > 0) {
-            const rect = selection.getRangeAt(0).getBoundingClientRect();
-            if (rect && rect.width) {
-                setSel({
-                    text,
-                    x: rect.left + rect.width / 2,
-                    y: rect.top,
-                });
-                return;
-            }
-        }
-    };
+        if (text.length <= 1 || !selection.rangeCount) return;
+        const range = selection.getRangeAt(0);
+        const root = scrollRef.current;
+        if (!root || !root.contains(range.commonAncestorContainer)) return;
+        const rect = range.getBoundingClientRect();
+        if (!rect || !rect.width) return;
+
+        // Touch: put it under the selection, out of the way of the system's
+        // own copy menu, which iOS draws above. Also go below when there is
+        // no room above.
+        const touch = window.matchMedia('(pointer: coarse)').matches;
+        const below = touch || rect.top < 72;
+        const half = 180; // about half the popup's width; keeps it on screen
+        const x = Math.min(Math.max(rect.left + rect.width / 2, half + 8), window.innerWidth - half - 8);
+        setSel({ text, x, y: below ? rect.bottom : rect.top, below });
+    }, []);
+
+    const handleMouseUp = () => showPopupForSelection();
+
+    useEffect(() => {
+        let timer = null;
+        let mouseHeld = false;
+        const onPointerDown = (e) => { if (e.pointerType === 'mouse') mouseHeld = true; };
+        const onPointerUp = (e) => { if (e.pointerType === 'mouse') mouseHeld = false; };
+        const onChange = () => {
+            clearTimeout(timer);
+            if (mouseHeld) return; // a mouse drag is still going; mouseup will handle it
+            timer = setTimeout(showPopupForSelection, 350);
+        };
+        document.addEventListener('selectionchange', onChange);
+        window.addEventListener('pointerdown', onPointerDown, true);
+        window.addEventListener('pointerup', onPointerUp, true);
+        return () => {
+            clearTimeout(timer);
+            document.removeEventListener('selectionchange', onChange);
+            window.removeEventListener('pointerdown', onPointerDown, true);
+            window.removeEventListener('pointerup', onPointerUp, true);
+        };
+    }, [showPopupForSelection]);
 
     // Hide the popup when clicking elsewhere or scrolling the page.
     useEffect(() => {
@@ -435,8 +473,8 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onPretend, onDocu
             {/* selection action popup */}
             {sel && (
                 <div
-                    className="gr-sel-pop"
-                    style={{ left: sel.x, top: sel.y - 10 }}
+                    className={`gr-sel-pop ${sel.below ? 'is-below' : ''}`}
+                    style={{ left: sel.x, top: sel.below ? sel.y + 12 : sel.y - 10 }}
                     onMouseUp={(e) => e.stopPropagation()}
                 >
                     <button onMouseDown={(e) => e.preventDefault()} onClick={doTranslate}><Languages size={13} /> 翻譯</button>

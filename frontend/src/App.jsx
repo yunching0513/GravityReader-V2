@@ -21,6 +21,8 @@ const BreakLock = lazy(() => import('./components/BreakLock'));
 const BrainDump = lazy(() => import('./components/BrainDump'));
 import * as api from './utils/apiClient';
 const IS_WEB = api.isWebMode();
+// Panes stack top/bottom on an upright tablet. Keep in step with index.css.
+const STACKED_MQ = '(orientation: portrait) and (max-width: 1100px)';
 
 // Starting points for the pretend-play lens; any free-text persona works too.
 const PERSONA_PRESETS = ['你的指導教授', '十年後的自己', '完全外行的人', '這段文字當年的讀者'];
@@ -848,41 +850,39 @@ function App() {
         setOpenSection(openSection === section ? null : section);
     };
 
-    // Handle Resizing
-    useEffect(() => {
-        const handleMouseMove = (e) => {
-            if (!isDragging) return;
-
-            const newWidth = (e.clientX / window.innerWidth) * 100;
+    // Handle Resizing. Pointer events, so a finger drags it as well as a mouse.
+    // When the panes are stacked (an upright iPad), the same split is a height.
+    // The move/up listeners are attached in the pointerdown handler itself, not
+    // in an effect, so a quick flick that lifts before React re-renders still
+    // ends the drag.
+    const startResize = useCallback((e) => {
+        e.preventDefault();
+        const stacked = window.matchMedia(STACKED_MQ).matches;
+        let last = null;
+        const handleMove = (ev) => {
+            const pct = stacked
+                ? (ev.clientY / window.innerHeight) * 100
+                : (ev.clientX / window.innerWidth) * 100;
             // Constrain between 20% and 80%
-            if (newWidth >= 20 && newWidth <= 80) {
-                setLeftWidth(newWidth);
-            }
+            if (pct >= 20 && pct <= 80) { last = pct; setLeftWidth(pct); }
         };
-
-        const handleMouseUp = () => {
+        const handleUp = () => {
+            document.removeEventListener('pointermove', handleMove);
+            document.removeEventListener('pointerup', handleUp);
+            document.removeEventListener('pointercancel', handleUp);
+            document.body.style.cursor = 'default';
+            document.body.style.userSelect = 'auto';
             setIsDragging(false);
-            // Persist once, at the end of the gesture — not on every frame.
-            setSettingPath('ui.leftWidth', leftWidth);
+            // Persist once, at the end of the gesture, not on every frame.
+            if (last !== null) setSettingPath('ui.leftWidth', last);
         };
-
-        if (isDragging) {
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
-        } else {
-            document.body.style.cursor = 'default';
-            document.body.style.userSelect = 'auto';
-        }
-
-        return () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-            document.body.style.cursor = 'default';
-            document.body.style.userSelect = 'auto';
-        };
-    }, [isDragging, leftWidth]);
+        document.addEventListener('pointermove', handleMove);
+        document.addEventListener('pointerup', handleUp);
+        document.addEventListener('pointercancel', handleUp);
+        document.body.style.cursor = stacked ? 'row-resize' : 'col-resize';
+        document.body.style.userSelect = 'none';
+        setIsDragging(true);
+    }, []);
 
     // Selections can arrive faster than Gemini answers. Stamp each request and
     // drop stale replies, so the pane always shows the passage you selected last
@@ -1012,7 +1012,7 @@ function App() {
     const isEmpty = !isBusy && !analysisResult && !summaryResult && !error && viewMode !== 'digest';
 
     return (
-        <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}`}>
+        <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}`} style={{ '--split': `${leftWidth}%` }}>
             {/* Sidebar Toggle */}
             <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -1774,6 +1774,7 @@ function App() {
             {/* Left Panel — PDF Reader */}
             <div className="gr-reader" style={{ width: `${leftWidth}%`, minWidth: '20%' }}>
                 <PdfReader
+                    onFileUpload={handleFileChange}
                     onTextSelect={handleTextSelect}
                     onReadSelection={handleReadSelection}
                     onExplain={handleExplain}
@@ -1826,7 +1827,9 @@ function App() {
             {/* Resizer */}
             <div
                 className={`gr-resizer ${isDragging ? 'is-dragging' : ''}`}
-                onMouseDown={() => setIsDragging(true)}
+                onPointerDown={startResize}
+                role="separator"
+                aria-label="調整左右欄寬度"
             />
 
             {/* Right Panel — Analysis / Summary */}
