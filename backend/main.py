@@ -23,6 +23,7 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 
 import glossary as glossary_store
+import vault as vault_store
 
 # Resolve the directory the app is running from. When packaged by PyInstaller
 # (sys.frozen), files live next to the executable; otherwise next to this file.
@@ -122,22 +123,86 @@ TRANSLATION_SCHEMA = {
     },
 }
 
-def _translation_config():
-    """Structured-output config, or None if the installed SDK is too old for it
-    (`response_schema` landed in google-generativeai 0.7). Probed once at import
-    so an older environment degrades to the prompt-only path instead of 500ing."""
-    cfg = {"response_mime_type": "application/json", "response_schema": TRANSLATION_SCHEMA}
+# Every metaphor breaks somewhere. Naming where it breaks is what makes this a
+# thinking tool rather than a mnemonic, so `caution_zh` is a required field.
+METAPHOR_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "metaphor_zh": {"type": "STRING"},
+        "plain_zh": {"type": "STRING"},
+        "mapping": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {"from": {"type": "STRING"}, "to": {"type": "STRING"}},
+                "required": ["from", "to"],
+            },
+        },
+        "caution_zh": {"type": "STRING"},
+    },
+    "required": ["metaphor_zh", "plain_zh", "caution_zh"],
+}
+
+
+# A role-play reading, not a metaphor: how this person would read the passage,
+# what they would notice that you'd walk past, and the question they would ask.
+PRETEND_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "reading_zh": {"type": "STRING"},
+        "notices_zh": {"type": "STRING"},
+        "question_zh": {"type": "STRING"},
+    },
+    "required": ["reading_zh", "notices_zh", "question_zh"],
+}
+
+# Re-ranks locally-found candidates. `path` must echo one we sent: the model's
+# answer is filtered against the candidate list, never trusted on its own.
+ASSOCIATION_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "path": {"type": "STRING"},
+            "reason_zh": {"type": "STRING"},
+            "bridge_zh": {"type": "STRING"},
+        },
+        "required": ["path", "reason_zh"],
+    },
+}
+
+
+def _probe_structured():
+    """Whether the installed SDK supports `response_schema` (landed in
+    google-generativeai 0.7). Probed once at import, so an older environment
+    degrades to the prompt-only path instead of 500ing on every request."""
     try:
         from google.generativeai.types import generation_types
 
-        generation_types.to_generation_config_dict(cfg)
-        return cfg
+        generation_types.to_generation_config_dict(
+            {"response_mime_type": "application/json", "response_schema": TRANSLATION_SCHEMA}
+        )
+        return True
     except Exception as exc:  # pragma: no cover — depends on the installed SDK
         logger.warning("Structured JSON output unavailable (%s); using prompt-only mode.", exc)
+        return False
+
+
+_STRUCTURED_OK = _probe_structured()
+
+
+def _json_config(schema):
+    """Generation config pinning the response to `schema`, or None when the
+    installed SDK cannot express it."""
+    if not _STRUCTURED_OK:
         return None
+    return {"response_mime_type": "application/json", "response_schema": schema}
 
 
-TRANSLATION_CONFIG = _translation_config()
+TRANSLATION_CONFIG = _json_config(TRANSLATION_SCHEMA)
+METAPHOR_CONFIG = _json_config(METAPHOR_SCHEMA)
+PRETEND_CONFIG = _json_config(PRETEND_SCHEMA)
+ASSOCIATION_CONFIG = _json_config(ASSOCIATION_SCHEMA)
 
 # Text-to-speech (Phase 1: Gemini cloud TTS for paragraph/page read-aloud).
 GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
@@ -294,6 +359,228 @@ async def summarize_text(request: SummarizeRequest):
     except Exception as e:
         logger.error(f"Error summarizing text: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+def _strip_fences(text):
+    out = (text or "").strip()
+    if out.startswith("```json"):
+        out = out[7:]
+    elif out.startswith("```"):
+        out = out[3:]
+    if out.endswith("```"):
+        out = out[:-3]
+    return out.strip()
+
+
+class MetaphorRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/metaphor")
+def metaphor(request: MetaphorRequest):
+    logger.info("\U0001f525 Received Metaphor Request...")
+
+    if not request.text:
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    model = _model()
+
+    try:
+        prompt = f"""You are helping a researcher who is stuck on a difficult passage.
+Lower the difficulty without lowering the content.
+
+Reply in Traditional Chinese (Taiwan) with these fields:
+metaphor_zh: an everyday metaphor for the core idea. Concrete, from ordinary life.
+plain_zh: the same idea restated plainly, no jargon.
+mapping: which part of the metaphor stands for which part of the idea.
+caution_zh: where this metaphor breaks down and would mislead if pushed further.
+
+Passage:
+{request.text}
+"""
+
+        if METAPHOR_CONFIG:
+            response = model.generate_content(prompt, generation_config=METAPHOR_CONFIG)
+        else:
+            response = model.generate_content(prompt)
+
+        return _strip_fences(response.text)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error building metaphor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PretendRequest(BaseModel):
+    text: str
+    persona: str
+
+
+@app.post("/api/pretend")
+def pretend(request: PretendRequest):
+    if not request.text or not (request.persona or "").strip():
+        raise HTTPException(status_code=400, detail="需要段落與角色")
+
+    model = _model()
+    persona = request.persona.strip()[:120]
+    try:
+        prompt = f"""Suspend ordinary assumptions for a moment and read this passage
+as {persona}. Stay in character, but stay honest: do not invent facts about the
+passage that are not there.
+
+Reply in Traditional Chinese (Taiwan) with these fields:
+reading_zh: how {persona} would read and react to this passage.
+notices_zh: what {persona} would notice here that a modern researcher walks past.
+question_zh: the one question {persona} would ask about it.
+
+Passage:
+{request.text}
+"""
+        if PRETEND_CONFIG:
+            response = model.generate_content(prompt, generation_config=PRETEND_CONFIG)
+        else:
+            response = model.generate_content(prompt)
+        return _strip_fences(response.text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in pretend-play: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Obsidian associative notes ────────────────────────────────────────
+# Desktop-only: the vault is on disk. Every write goes through vault.py's
+# confinement and ownership checks; see that module's docstring.
+
+def _vault_error(e):
+    return HTTPException(status_code=getattr(e, "status", 400), detail=str(e))
+
+
+@app.get("/api/vault/status")
+def vault_status(folder: Optional[str] = None, count: bool = False):
+    return vault_store.status(folder, count=count)
+
+
+class VaultCandidatesRequest(BaseModel):
+    text: str
+    tags: List[str] = []
+    excludeSource: str = ""
+    limit: int = 40
+
+
+@app.post("/api/vault/candidates")
+def vault_candidates(req: VaultCandidatesRequest):
+    try:
+        return {"candidates": vault_store.candidates(
+            req.text, req.tags, req.excludeSource, max(1, min(req.limit, 60)))}
+    except vault_store.VaultError as e:
+        raise _vault_error(e)
+
+
+@app.post("/api/vault/associate")
+def vault_associate(req: VaultCandidatesRequest):
+    """Three surprising-but-real links from the vault.
+
+    The local heuristic does the finding; Gemini only re-ranks it, and only
+    ever sees titles, tags and a 200-character snippet — never a note's body.
+    With no key, or if the call fails, the heuristic results come back as-is,
+    so the feature still works offline.
+    """
+    try:
+        cands = vault_store.candidates(req.text, req.tags, req.excludeSource, 40)
+    except vault_store.VaultError as e:
+        raise _vault_error(e)
+    if not cands:
+        return {"associations": [], "fallback": False}
+
+    def heuristic(reason=None):
+        return {
+            "associations": [
+                {"path": c["path"], "title": c["title"], "reason_zh": None,
+                 "bridge_zh": None, "dormant": c["dormant"]}
+                for c in cands[:3]
+            ],
+            "fallback": True,
+            "reason": reason,
+        }
+
+    try:
+        model = _model()
+    except HTTPException:
+        return heuristic("no-key")
+
+    listing = "\n".join(
+        f"- path: {c['path']}\n  title: {c['title']}\n  tags: {', '.join(c['tags'][:8])}\n  snippet: {c['snippet']}"
+        for c in cands
+    )
+    prompt = f"""A researcher is reading the passage below. From their own notes
+listed after it, choose the 3 links that are SURPRISING BUT REAL: connections
+they would not make on their own, yet which hold up. Avoid the obvious and the
+merely similar. Use only paths from the list, copied exactly.
+
+Reply in Traditional Chinese (Taiwan):
+path: the note's path, exactly as listed.
+reason_zh: why this connection holds.
+bridge_zh: the shared idea that bridges the two, in a few words.
+
+Passage:
+{req.text[:2000]}
+
+Notes:
+{listing}
+"""
+    try:
+        if ASSOCIATION_CONFIG:
+            response = model.generate_content(prompt, generation_config=ASSOCIATION_CONFIG)
+        else:
+            response = model.generate_content(prompt)
+        picked = json.loads(_strip_fences(response.text))
+    except Exception as e:
+        logger.warning(f"Association re-rank failed, using heuristic: {e}")
+        return heuristic("rerank-failed")
+
+    # Never trust a path the model returns: keep only ones we actually sent.
+    by_path = {c["path"]: c for c in cands}
+    out = []
+    for item in picked if isinstance(picked, list) else []:
+        c = by_path.get((item or {}).get("path"))
+        if c and c["path"] not in {o["path"] for o in out}:
+            out.append({"path": c["path"], "title": c["title"],
+                        "reason_zh": item.get("reason_zh"), "bridge_zh": item.get("bridge_zh"),
+                        "dormant": c["dormant"]})
+        if len(out) == 3:
+            break
+    return {"associations": out, "fallback": False} if out else heuristic("rerank-empty")
+
+
+class VaultNoteRequest(BaseModel):
+    markdown: str
+    filename: str
+    gr_id: str
+    source: str = ""
+    page: Optional[int] = None
+    folder: Optional[str] = None
+    path: Optional[str] = None   # set = update an existing note we own
+
+
+@app.post("/api/vault/note")
+def vault_write_note(req: VaultNoteRequest):
+    try:
+        return vault_store.write_note(req.markdown, req.filename, req.gr_id,
+                                      source=req.source, page=req.page,
+                                      folder=req.folder, path=req.path)
+    except vault_store.VaultError as e:
+        raise _vault_error(e)
+
+
+@app.get("/api/vault/note")
+def vault_read_note(path: str):
+    try:
+        return vault_store.read_note(path)
+    except vault_store.VaultError as e:
+        raise _vault_error(e)
+
 
 @app.get("/")
 def read_root():

@@ -1,31 +1,39 @@
 /* ════════════════════════════════════════════════════════════════
    Yun's Reader · 昀氏閱讀
-   Visual system — 昀慶手拙 / Fair-faced Concrete + Vermilion
-   留白即內容 · 靜中見質
+   Visual system — International Typographic Style
+   One grotesque, black on white, one red. Rules and a left edge, not boxes.
    ════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* ── Palette · 清水混凝土系灰階 / Fair-faced Concrete ── */
-  --paper:    #F1EFE9;  /* base · 養生 */
-  --paper-2:  #EAE8E2;  /* card surface · 清水 */
-  --mist:     #D6D3CB;  /* recessed surface · 灰霧 */
-  --stone:    #BBB8AE;  /* divider · 礫石 */
-  --silver:   #A6A399;  /* hairline · 銀灰 */
-  --ash:      #807C73;  /* caption · 鋼灰 */
-  --graphite: #565347;  /* body · 鉛灰 */
-  --ink:      #1F1D19;  /* main · 墨黑 */
-  --sumi:     #0E0D0B;  /* deepest · 深墨 */
-  --indigo:   #C15F3C;  /* accent · 朱 shu */
-  --indigo-d: #9E4B2E;  /* accent dark */
-  --indigo-l: rgba(193, 95, 60, 0.08);
-  --indigo-m: rgba(193, 95, 60, 0.16);
+  /* ── Palette · neutral greys, one red ──
+     Variable names are kept from the earlier palette so the ~100 rules that
+     use them don't churn; only the values changed. --indigo is the accent. */
+  --paper:    #FFFFFF;  /* base */
+  --paper-2:  #F4F4F4;  /* card surface */
+  --mist:     #E4E4E4;  /* recessed surface */
+  --stone:    #CFCFCF;  /* divider */
+  --silver:   #A8A8A8;  /* hairline */
+  --ash:      #767676;  /* caption (4.5:1 on white) */
+  --graphite: #3C3C3C;  /* body */
+  --ink:      #111111;  /* main */
+  --sumi:     #000000;  /* deepest */
+  --indigo:   #E2001A;  /* accent · Swiss red */
+  --indigo-d: #B50015;  /* accent dark */
+  --indigo-l: rgba(226, 0, 26, 0.06);
+  --indigo-m: rgba(226, 0, 26, 0.14);
 
-  /* ── Type stack ── */
-  --zh-serif: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif;
-  --zh-sans:  'Noto Sans TC', system-ui, sans-serif;
-  --en-serif: 'EB Garamond', 'Cormorant Garamond', Georgia, serif;
-  --mono:     'JetBrains Mono', 'Courier New', monospace;
-  --zen:      'Zen Maru Gothic', sans-serif;
+  /* ── Type stack · one grotesque family ──
+     The serif/mono names stay as aliases so every rule inherits the switch. */
+  --zh-sans:  'Inter', 'Noto Sans TC', 'PingFang TC', system-ui, sans-serif;
+  --zh-serif: var(--zh-sans);
+  --en-serif: var(--zh-sans);
+  --mono:     var(--zh-sans);
+  /* The AA button's rounded face, loaded only when someone turns it on. */
+  --zen:      'Zen Maru Gothic', var(--zh-sans);
+
+  /* ── Grid ── */
+  --rule:     2px solid var(--ink);   /* structural rule */
+  --hair:     1px solid var(--stone); /* quiet division */
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -36,7 +44,7 @@ body {
   font-family: var(--zh-sans);
   background: var(--paper);
   color: var(--ink);
-  font-weight: 300;
+  font-weight: 400;
   line-height: 1.6;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -44,22 +52,12 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Subtle concrete grain — aggregate dust on a polished surface */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  opacity: 0.30;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.30 0 0 0 0 0.30 0 0 0 0 0.29 0 0 0 0.10 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
 
 #root { width: 100vw; height: 100vh; position: relative; z-index: 2; }
 
 ::selection { background: var(--indigo-m); color: var(--ink); }
 
-/* ── Scrollbar · concrete ── */
+/* ── Scrollbar ── */
 .gr-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
 .gr-scroll::-webkit-scrollbar-track { background: transparent; }
 .gr-scroll::-webkit-scrollbar-thumb { background: var(--stone); }
@@ -99,7 +97,7 @@ body::before {
 .gr-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(31, 29, 25, 0.28);
+  background: rgba(17, 17, 17, 0.28);
   z-index: 54;
   opacity: 0;
   pointer-events: none;
@@ -121,12 +119,12 @@ body::before {
   padding: 70px 26px 32px;
   overflow-y: auto;
 }
-.gr-sidebar.is-open { transform: translateX(0); box-shadow: 2px 0 50px rgba(31, 29, 25, 0.14); }
+.gr-sidebar.is-open { transform: translateX(0); }
 
 .gr-side-head { margin-bottom: 14px; }
 .gr-side-mark {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 21px;
   font-weight: 600;
   color: var(--ink);
@@ -182,7 +180,7 @@ body::before {
 .gr-side-toggle:hover .zh { color: var(--indigo); }
 .gr-side-en {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 12px;
   color: var(--ash);
   margin: 4px 0 0 34px;
@@ -238,7 +236,7 @@ body::before {
   cursor: pointer;
   font-family: var(--zh-sans);
   font-size: 13px;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: 0.02em;
   color: var(--graphite);
   white-space: nowrap;
@@ -263,7 +261,7 @@ body::before {
 .gr-file-del:hover { color: var(--indigo); }
 .gr-file-empty {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 13px;
   color: var(--silver);
   text-align: center;
@@ -322,7 +320,7 @@ body::before {
 }
 .gr-len-btn .v {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 17px;
   color: var(--graphite);
   line-height: 1;
@@ -369,12 +367,12 @@ body::before {
   padding: 12px 22px 12px 66px;
   border-bottom: 1px solid var(--stone);
   background: var(--paper);
-  min-height: 64px;
+  min-height: 64px;   /* paired with .gr-analysis-head — keep the two in step */
 }
 .gr-brand { display: inline-flex; align-items: baseline; gap: 11px; }
 .gr-brand .mark {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 20px;
   font-weight: 600;
   color: var(--ink);
@@ -401,7 +399,7 @@ body::before {
 }
 .gr-page-ind b {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-weight: 500;
   font-size: 16px;
   color: var(--indigo);
@@ -451,7 +449,7 @@ body::before {
      surround stays clean instead of a deep concrete grey. */
   background: var(--paper-2);
 }
-.gr-doc { box-shadow: 0 3px 28px rgba(31, 29, 25, 0.16); border: 1px solid var(--stone); }
+.gr-doc { border: 1px solid var(--stone); }
 
 /* empty / placeholder */
 .gr-empty {
@@ -474,7 +472,7 @@ body::before {
 }
 .gr-empty .en {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 20px;
   color: var(--silver);
 }
@@ -513,23 +511,30 @@ body::before {
   background: var(--paper);
   overflow: hidden;
 }
+/* Same 64px as .gr-reader-bar, so both panes' content starts on one line.
+   min-height rather than height: dragging the resizer to an extreme still
+   wraps instead of clipping the tools. */
 .gr-analysis-head {
-  padding: 24px 36px 18px;
+  padding: 0 36px;
   border-bottom: 1px solid var(--stone);
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   justify-content: space-between;
   gap: 24px;
   flex-wrap: wrap;
+  min-height: 64px;
 }
 .gr-head-kicker {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 13px;
   color: var(--indigo);
   letter-spacing: 0.02em;
   margin-bottom: 5px;
 }
+/* The page heading, now the first thing inside the scrolling body. */
+.gr-body-head { margin-bottom: 26px; }
+
 .gr-head-title {
   font-family: var(--zh-serif);
   font-size: 30px;
@@ -541,13 +546,13 @@ body::before {
 .gr-head-sub {
   font-family: var(--zh-sans);
   font-size: 12.5px;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: 0.04em;
   color: var(--ash);
   margin-top: 9px;
 }
 
-.gr-head-tools { display: flex; align-items: center; gap: 22px; }
+.gr-head-tools { display: flex; align-items: center; gap: 22px; flex: 0 0 auto; }
 .gr-tool-group { display: flex; align-items: center; gap: 9px; }
 .gr-tool-label {
   font-family: var(--mono);
@@ -610,7 +615,7 @@ body::before {
   left: 24px;
   top: 25px;
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 15px;
   color: var(--silver);
   transition: color 0.25s ease;
@@ -657,7 +662,7 @@ body::before {
 }
 .gr-entry-glossary-alt {
   color: var(--silver);
-  font-style: italic;
+  font-style: normal;
   letter-spacing: 0;
 }
 .gr-entry-zh {
@@ -697,7 +702,7 @@ body::before {
   top: -6px;
   left: 22px;
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 64px;
   color: var(--indigo);
   opacity: 0.28;
@@ -706,7 +711,7 @@ body::before {
 .gr-summary-text {
   font-family: var(--zh-serif);
   font-size: 17px;
-  font-weight: 300;
+  font-weight: 400;
   line-height: 2.1;
   letter-spacing: 0.05em;
   color: var(--ink);
@@ -725,7 +730,7 @@ body::before {
 }
 .gr-loading .en {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 18px;
   color: var(--indigo);
   letter-spacing: 0.02em;
@@ -779,14 +784,13 @@ body::before {
 }
 
 /* ════════ TABS (Reading / Notes) ════════ */
-.gr-head-main { display: flex; flex-direction: column; }
-.gr-tabs { display: flex; gap: 24px; margin-bottom: 12px; }
+.gr-tabs { display: flex; align-items: flex-end; gap: 24px; }
 .gr-tab {
   position: relative;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0 0 8px;
+  padding: 0 0 18px;
   font-family: var(--zh-serif);
   font-size: 15px;
   font-weight: 500;
@@ -799,7 +803,7 @@ body::before {
 }
 .gr-tab em {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 11px;
   color: var(--silver);
   letter-spacing: 0.02em;
@@ -1000,7 +1004,6 @@ body::before {
   padding: 11px 20px;
   background: var(--paper-2);
   border-top: 1px solid var(--stone);
-  box-shadow: 0 -6px 26px rgba(31, 29, 25, 0.10);
   z-index: 15;
 }
 .gr-audio-transport { display: flex; align-items: center; gap: 8px; }
@@ -1190,7 +1193,7 @@ body::before {
   display: block;
   margin-top: 12px;
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 13px;
   color: var(--indigo);
   text-decoration: none;
@@ -1302,7 +1305,7 @@ body::before {
 }
 .gr-zot-item .m {
   font-family: var(--en-serif);
-  font-style: italic;
+  font-style: normal;
   font-size: 11px;
   color: var(--ash);
 }
@@ -1347,7 +1350,6 @@ body::before {
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-  box-shadow: 0 2px 16px rgba(31, 29, 25, 0.12);
 }
 .gr-reader:hover .gr-gutter { opacity: 0.75; }
 .gr-gutter:hover { opacity: 1 !important; color: var(--indigo); border-color: var(--indigo); }
@@ -1361,7 +1363,6 @@ body::before {
   transform: translate(-50%, -100%);
   display: flex;
   background: var(--ink);
-  box-shadow: 0 6px 24px rgba(31, 29, 25, 0.28);
   animation: gr-fade 0.12s ease;
 }
 .gr-sel-pop::after {
@@ -1380,7 +1381,7 @@ body::before {
   gap: 6px;
   background: none;
   border: none;
-  border-right: 1px solid rgba(241, 239, 233, 0.18);
+  border-right: 1px solid rgba(255, 255, 255, 0.18);
   color: var(--paper);
   font-family: var(--zh-sans);
   font-size: 13px;
@@ -1397,7 +1398,7 @@ body::before {
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: rgba(31, 29, 25, 0.42);
+  background: rgba(17, 17, 17, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1407,7 +1408,6 @@ body::before {
 .gr-share {
   background: var(--paper);
   border: 1px solid var(--stone);
-  box-shadow: 0 24px 80px rgba(31, 29, 25, 0.3);
   width: min(540px, 96vw);
   max-height: 92vh;
   display: flex;
@@ -1446,7 +1446,6 @@ body::before {
   max-height: 52vh;
   width: auto;
   height: auto;
-  box-shadow: 0 6px 30px rgba(31, 29, 25, 0.22);
   border: 1px solid var(--stone);
 }
 
@@ -1492,7 +1491,8 @@ body::before {
 }
 
 @media (max-width: 820px) {
-  .gr-analysis-head { flex-direction: column; align-items: flex-start; }
+  .gr-analysis-head { padding: 0 20px; }
+  .gr-head-tools { gap: 14px; }
   .gr-head-title { font-size: 24px; }
 }
 
@@ -1523,7 +1523,7 @@ body::before {
   background: var(--paper-2);
   border: 1px solid var(--mist);
   border-left: 3px solid var(--stone);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 14px 16px;
   margin-bottom: 10px;
   display: flex;
@@ -1554,7 +1554,7 @@ body::before {
   font-size: 10px;
   font-weight: 600;
   padding: 2px 7px;
-  border-radius: 20px;
+  border-radius: 0;
   white-space: nowrap;
   flex-shrink: 0;
   background: var(--mist);
@@ -1585,7 +1585,7 @@ body::before {
 .gr-digest-article {
   background: var(--paper-2);
   border: 1px solid var(--mist);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 16px 18px;
   margin-bottom: 14px;
   display: flex;
@@ -1629,3 +1629,987 @@ body::before {
   color: var(--indigo);
   border-color: var(--indigo-m);
 }
+
+/* ════════ FLOW · 心流 ════════ */
+
+/* ── shared modal shell (generalised from the share card) ── */
+.gr-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 92;
+  background: rgba(17, 17, 17, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  animation: gr-fade 0.18s ease;
+}
+.gr-modal {
+  background: var(--paper);
+  border: 1px solid var(--stone);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.gr-modal:focus { outline: none; }
+.gr-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--stone);
+}
+.gr-modal-title {
+  font-family: var(--zh-serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+.gr-modal-x {
+  background: none; border: none; cursor: pointer;
+  color: var(--ash); display: flex;
+  transition: color 0.2s ease;
+}
+.gr-modal-x:hover { color: var(--indigo); }
+.gr-modal-body { padding: 22px; overflow-y: auto; }
+.gr-modal-foot { padding: 14px 22px; border-top: 1px solid var(--stone); }
+
+/* ── press-and-hold to skip ── */
+.gr-hold-wrap { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.gr-hold {
+  position: relative;
+  overflow: hidden;
+  padding: 10px 20px;
+  border: 1px solid var(--silver);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+  touch-action: none;          /* pointer capture owns the gesture */
+  user-select: none;
+}
+.gr-hold:hover, .gr-hold.is-holding { border-color: var(--indigo); }
+.gr-hold-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--hold-progress, 0) * 100%);
+  background: var(--indigo-m);
+  pointer-events: none;
+}
+.gr-hold-text { position: relative; display: block; }
+.gr-hold-text .zh {
+  display: block;
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--graphite);
+}
+.gr-hold-text .en {
+  display: block;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-top: 4px;
+}
+.gr-hold-count {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+}
+
+/* ── thought dump ── */
+.gr-dump-lead .zh {
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--graphite);
+  letter-spacing: 0.03em;
+}
+.gr-dump-meta {
+  font-family: var(--en-serif);
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ash);
+  margin-top: 6px;
+}
+.gr-dump-last {
+  border-left: 2px solid var(--indigo-m);
+  padding: 10px 0 10px 14px;
+  margin: 16px 0;
+  background: var(--indigo-l);
+}
+.gr-dump-last-label {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 6px;
+}
+.gr-dump-last-next {
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  color: var(--ink);
+  line-height: 1.8;
+}
+.gr-dump-last-text {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--graphite);
+  line-height: 1.8;
+  margin-top: 4px;
+}
+.gr-dump-field { display: block; margin-top: 18px; }
+.gr-dump-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 7px;
+}
+.gr-dump-input {
+  width: 100%;
+  background: var(--paper-2);
+  border: 1px solid var(--silver);
+  padding: 11px 13px;
+  font-family: var(--zh-sans);
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--ink);
+  resize: vertical;
+}
+.gr-dump-input:focus { outline: none; border-color: var(--indigo); }
+.gr-app.is-zen .gr-dump-input { font-family: var(--zen); }
+.gr-dump-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+}
+.gr-dump-timer {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+}
+.gr-dump-timer b { color: var(--indigo); font-weight: 500; }
+.gr-dump-skip {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dotted var(--silver);
+  display: flex;
+  justify-content: center;
+}
+
+/* ── break lock ── */
+.gr-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  /* Fogged paper, not a black scrim: resting, not punished. */
+  background: rgba(255, 255, 255, 0.97);
+  
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: gr-fade 0.5s ease;
+}
+.gr-lock-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 40px;
+  text-align: center;
+}
+.gr-lock-kicker {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.gr-lock-cycle { margin-left: 12px; color: var(--silver); }
+
+.gr-breathe {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  display: grid;
+  place-items: center;
+}
+.gr-breathe-ring,
+.gr-breathe-core {
+  position: absolute;
+  border-radius: 50%;
+  /* ~5 breaths/min — coherent breathing. Pure CSS: zero JS per frame. */
+  animation: gr-breathe 12s ease-in-out infinite;
+}
+.gr-breathe-ring {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--indigo-m);
+}
+.gr-breathe-core {
+  width: 46%;
+  height: 46%;
+  background: var(--indigo-l);
+  border: 1px solid var(--indigo);
+  animation-delay: 0s;
+}
+@keyframes gr-breathe {
+  0%   { transform: scale(0.82); opacity: 0.55; }
+  42%  { transform: scale(1.14); opacity: 1; }
+  58%  { transform: scale(1.14); opacity: 1; }
+  100% { transform: scale(0.82); opacity: 0.55; }
+}
+.gr-breathe-cue {
+  position: relative;
+  height: 18px;
+  width: 100%;
+}
+.gr-cue {
+  position: absolute;
+  inset: 0;
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  letter-spacing: 0.4em;
+  color: var(--ash);
+  animation: gr-cue 12s ease-in-out infinite;
+}
+.gr-cue--out { animation-delay: -6s; }
+@keyframes gr-cue {
+  0%, 42%  { opacity: 1; }
+  50%, 92% { opacity: 0; }
+  100%     { opacity: 1; }
+}
+
+.gr-lock-clock {
+  font-family: var(--mono);
+  font-size: 34px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+}
+.gr-lock-bar {
+  width: 260px;
+  height: 3px;
+  background: var(--mist);
+  overflow: hidden;
+}
+.gr-lock-fill {
+  height: 100%;
+  background: var(--indigo);
+  transition: width 0.5s linear;
+}
+.gr-lock-note {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--ash);
+  letter-spacing: 0.04em;
+  max-width: 300px;
+}
+.gr-lock-skip { margin-top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gr-breathe-ring, .gr-breathe-core, .gr-cue { animation: none; }
+  .gr-cue--out { opacity: 0; }
+  .gr-lock { animation: none; }
+}
+
+/* ── focus timer chip ── */
+.gr-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 10px;
+  border: 1px solid var(--stone);
+  background: var(--paper-2);
+  margin-left: auto;   /* far right of the bar, with or without page controls */
+  flex: 0 0 auto;
+}
+.gr-timer.is-paused { opacity: 0.6; }
+.gr-timer-ring {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: conic-gradient(var(--indigo) calc(var(--timer-progress, 0) * 360deg), var(--mist) 0);
+}
+.gr-timer-clock {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+}
+.gr-timer-phase {
+  font-family: var(--zh-sans);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ash);
+}
+.gr-timer-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--ash);
+  display: flex;
+  transition: color 0.2s ease;
+}
+.gr-timer-btn:hover { color: var(--indigo); }
+
+/* ── sidebar: flow section ── */
+.gr-flow-stat {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ash);
+  padding: 7px 0;
+  border-bottom: 1px dotted var(--silver);
+}
+.gr-flow-stat b { color: var(--ink); font-weight: 500; }
+.gr-flow-stats { margin-top: 14px; }
+.gr-num-field { display: flex; align-items: center; gap: 8px; }
+.gr-num-field .gr-input { width: 68px; text-align: center; }
+.gr-num-field span {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--ash);
+}
+
+/* stale-schema notice (another window upgraded the database) */
+.gr-stale {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 210;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 11px 18px;
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+/* ════════ READING GUIDE ════════ */
+/* Mounted inside .react-pdf__Page, so these coordinates are page-local and
+   scale with the page. pointer-events: none keeps text selection untouched. */
+.gr-guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  z-index: 2;
+}
+.gr-guide-band,
+.gr-guide-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+.gr-guide-band {
+  /* multiply so it darkens the paper rather than washing it out */
+  mix-blend-mode: multiply;
+  /* Tint only the part of the line already covered, strongest right at the
+     cursor. A gradient fixed to the band would be darkest at the line's end,
+     which pulls the eye ahead of where you should be reading. */
+  background: linear-gradient(
+    90deg,
+    var(--indigo-l) 0%,
+    var(--indigo-m) calc(var(--guide-frac, 0) * 100%),
+    transparent calc(var(--guide-frac, 0) * 100% + 1.5%)
+  );
+}
+.gr-guide-edge {
+  width: 2px;
+  background: var(--indigo);
+  opacity: 0.85;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gr-guide { transition: none; }
+}
+
+/* ════════ METAPHOR + SOUND CONTROLS ════════ */
+.gr-meta {
+  border: 1px solid var(--stone);
+  border-left: 2px solid var(--indigo);
+  background: var(--paper-2);
+  padding: 18px 20px;
+  margin-bottom: 26px;
+  animation: gr-fade 0.3s ease;
+}
+.gr-meta-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.gr-meta-kicker {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--indigo);
+}
+.gr-meta-x {
+  background: none; border: none; cursor: pointer; color: var(--ash); display: flex;
+  transition: color 0.2s ease;
+}
+.gr-meta-x:hover { color: var(--indigo); }
+.gr-meta-src {
+  font-family: var(--en-serif);
+  font-size: 13px;
+  color: var(--ash);
+  line-height: 1.7;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px dotted var(--silver);
+}
+.gr-meta-wait, .gr-meta-err {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--ash);
+  letter-spacing: 0.04em;
+}
+.gr-meta-err { color: var(--indigo-d); }
+.gr-meta-main {
+  font-family: var(--zh-serif);
+  font-size: 16px;
+  line-height: 2;
+  color: var(--ink);
+  letter-spacing: 0.03em;
+}
+.gr-app.is-zen .gr-meta-main { font-family: var(--zen); font-weight: 500; }
+.gr-meta-plain {
+  font-family: var(--zh-sans);
+  font-size: 13px;
+  line-height: 1.95;
+  color: var(--graphite);
+  margin-top: 10px;
+}
+.gr-app.is-zen .gr-meta-plain { font-family: var(--zen); }
+.gr-meta-map { margin-top: 14px; }
+.gr-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--graphite);
+  padding: 4px 0;
+}
+.gr-meta-row .a { color: var(--indigo); font-family: var(--mono); }
+.gr-meta-row .f { color: var(--ash); }
+.gr-meta-caution {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dotted var(--silver);
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--graphite);
+}
+.gr-meta-caution .lbl {
+  display: block;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 5px;
+}
+
+/* sliders — square, to match everything else */
+.gr-range {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: var(--mist);
+  outline: none;
+  margin-top: 4px;
+}
+.gr-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  background: var(--indigo);
+  cursor: pointer;
+  border: none;
+}
+.gr-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  background: var(--indigo);
+  cursor: pointer;
+  border: none;
+  border-radius: 0;
+}
+.gr-upload--slim { padding: 11px 14px; margin-bottom: 14px; }
+
+/* ════════ ASSOCIATIVE NOTES + PRETEND PLAY ════════ */
+.gr-pretend { border-left-color: var(--graphite); }
+.gr-pretend-who {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.gr-pretend-who .lbl {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  color: var(--ash);
+  letter-spacing: 0.06em;
+}
+.gr-pretend-pick { flex: 0 0 auto; font-family: var(--zh-sans); font-size: 12px; padding: 6px 8px; }
+.gr-pretend-custom { flex: 1 1 160px; font-family: var(--zh-sans); font-size: 12px; padding: 6px 9px; }
+
+.gr-note-tag--vault {
+  background: transparent;
+  color: var(--indigo);
+  border: 1px solid var(--indigo-m);
+}
+.gr-note-act:disabled { opacity: 0.35; cursor: wait; }
+
+.gr-note-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.gr-note-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--zh-sans);
+  font-size: 11px;
+  color: var(--graphite);
+  border: 1px dotted var(--silver);
+  padding: 2px 7px;
+}
+
+.gr-assoc {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 1px solid var(--stone);
+  border-left: 2px solid var(--indigo);
+  animation: gr-fade 0.3s ease;
+}
+.gr-assoc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--indigo);
+  margin-bottom: 10px;
+}
+.gr-assoc-note {
+  font-family: var(--zh-sans);
+  font-size: 11px;
+  color: var(--ash);
+  margin-bottom: 10px;
+  line-height: 1.7;
+}
+.gr-assoc-item {
+  padding: 11px 0;
+  border-top: 1px dotted var(--silver);
+}
+.gr-assoc-item:first-of-type { border-top: none; }
+.gr-assoc-title {
+  font-family: var(--zh-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gr-assoc-dormant {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+  border: 1px solid var(--silver);
+  padding: 1px 5px;
+}
+.gr-assoc-why, .gr-assoc-bridge {
+  font-family: var(--zh-sans);
+  font-size: 12px;
+  line-height: 1.85;
+  color: var(--graphite);
+  margin: 6px 0 8px;
+}
+.gr-assoc-bridge { color: var(--ash); font-size: 11px; }
+.gr-app.is-zen .gr-assoc-why { font-family: var(--zen); }
+
+.gr-vault-path {
+  word-break: break-all;
+  font-size: 10px;
+  margin-bottom: 14px;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   INTERNATIONAL TYPOGRAPHIC STYLE
+   One grotesque family, black on white with a single red, square
+   corners, no shadows. Structure comes from rules, a left edge and
+   type size and weight, not from boxes and depth. Everything above
+   still holds; this block only overrides what the style changes.
+   ════════════════════════════════════════════════════════════════ */
+
+body { font-weight: 400; line-height: 1.55; font-feature-settings: 'cv11', 'ss01'; }
+
+/* numbers line up in columns wherever they are data */
+.gr-page-ind, .gr-zoom-val, .gr-entry-n, .gr-side-toggle .num, .gr-tab-count,
+.gr-timer, .gr-len-btn .v, .gr-range-val { font-variant-numeric: tabular-nums; }
+
+/* ── structural rules: the two pane headers sit on one black line ── */
+.gr-reader-bar, .gr-analysis-head { border-bottom: var(--rule); }
+.gr-reader { border-right-color: var(--ink); }
+.gr-resizer { background: var(--ink); }
+.gr-resizer:hover, .gr-resizer.is-dragging { background: var(--indigo); }
+
+/* ── wordmark ── */
+.gr-brand { gap: 12px; }
+.gr-brand .mark, .gr-side-mark { font-weight: 700; letter-spacing: -0.02em; }
+.gr-brand .mark { font-size: 19px; }
+.gr-brand .zh { font-weight: 500; letter-spacing: 0.04em; color: var(--ink); border-left-color: var(--ink); }
+.gr-side-mark { font-size: 26px; line-height: 1.1; }
+.gr-side-sub { letter-spacing: 0.08em; font-weight: 500; }
+
+/* ── controls: black outline, inverts on hover ── */
+.gr-btn {
+  font-size: 12px; font-weight: 500; letter-spacing: 0.04em;
+  border-color: var(--ink); color: var(--ink);
+}
+.gr-btn:hover:not(:disabled) { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.gr-btn--accent:hover:not(:disabled) { background: var(--indigo-d); border-color: var(--indigo-d); }
+.gr-menu-btn { background: var(--paper); border-color: var(--ink); color: var(--ink); }
+.gr-menu-btn:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.gr-seg { border-color: var(--ink); }
+.gr-seg button { border-right-color: var(--ink); color: var(--ink); letter-spacing: 0.04em; font-weight: 500; }
+.gr-seg button.is-active { background: var(--ink); color: var(--paper); }
+.gr-page-ind { color: var(--ink); letter-spacing: 0.02em; }
+.gr-page-ind b { font-weight: 700; font-size: 15px; }
+.gr-input, .gr-note-input { border-color: var(--ink); background: var(--paper); }
+.gr-input:focus, .gr-note-input:focus { outline: none; border-color: var(--indigo); box-shadow: inset 0 0 0 1px var(--indigo); }
+
+/* ── tabs ── */
+.gr-tab { font-weight: 700; font-size: 15px; letter-spacing: 0.02em; }
+.gr-tab em { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.gr-tab.is-active::after { height: 4px; bottom: -2px; }
+
+/* ── headings: big, bold, flush left ── */
+.gr-head-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+.gr-head-title { font-size: 40px; letter-spacing: -0.01em; line-height: 1.1; }
+.gr-head-sub { font-size: 13px; letter-spacing: 0.01em; color: var(--graphite); margin-top: 10px; }
+.gr-body-head { margin-bottom: 32px; padding-bottom: 24px; border-bottom: var(--hair); }
+
+/* ── empty states: a large figure set flush left, not a centred seal ── */
+.gr-empty { align-items: flex-start; text-align: left; padding: 48px 56px; gap: 8px; }
+.gr-empty .glyph { font-size: 128px; font-weight: 700; color: var(--mist); letter-spacing: -0.04em; }
+.gr-empty .en { font-size: 24px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+.gr-empty .zh { font-size: 15px; letter-spacing: 0.04em; color: var(--graphite); }
+.gr-empty .hint { font-size: 11px; font-weight: 500; letter-spacing: 0.08em; color: var(--ash); margin-top: 16px; }
+
+/* ── sidebar: the 01–09 numbers carry the structure ── */
+.gr-sidebar { background: var(--paper); border-right: var(--rule); }
+.gr-side-sec { border-top: 1px solid var(--ink); padding: 18px 0 20px; }
+.gr-side-toggle { align-items: center; }
+.gr-side-toggle .grp { gap: 0; align-items: baseline; }
+.gr-side-toggle .num { width: 44px; flex: 0 0 44px; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+.gr-side-toggle .zh { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; }
+.gr-side-toggle:hover .zh { color: var(--ink); }
+.gr-side-toggle:hover .num { color: var(--ink); }
+.gr-side-en { margin-left: 44px; font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.gr-side-btn { border-color: var(--ink); }
+.gr-side-btn:hover { background: var(--ink); border-color: var(--ink); }
+.gr-side-btn:hover .zh, .gr-side-btn:hover .en { color: var(--paper); }
+.gr-side-btn .en, .gr-upload .en { letter-spacing: 0.08em; font-weight: 500; }
+.gr-upload { border: 1px solid var(--ink); align-items: flex-start; text-align: left; }
+.gr-upload .zh { letter-spacing: 0.02em; font-weight: 500; color: var(--ink); }
+.gr-file { border-bottom: var(--hair); }
+.gr-len-btn { border-color: var(--ink); }
+.gr-len-btn .v { font-weight: 700; }
+
+/* ── entries: a ruled list, not a stack of cards ── */
+.gr-cards { gap: 0; }
+.gr-entry {
+  background: transparent; border: none; border-top: 1px solid var(--ink);
+  padding: 20px 8px 24px 56px;
+}
+.gr-cards .gr-entry:last-child { border-bottom: 1px solid var(--ink); }
+.gr-entry:hover { background: var(--paper-2); border-color: var(--ink); }
+.gr-entry.is-active { background: var(--indigo-l); border-color: var(--ink); }
+.gr-entry.is-active::before { width: 4px; }
+.gr-entry-n { left: 12px; top: 22px; font-size: 13px; font-weight: 700; color: var(--ash); }
+.gr-entry-en { font-size: 18px; line-height: 1.55; letter-spacing: -0.005em; }
+.gr-entry-rule { margin: 14px 0; }
+.gr-entry-zh, .gr-summary-text { font-size: 16px; line-height: 1.9; letter-spacing: 0.02em; }
+.gr-summary { background: transparent; border: none; border-left: 4px solid var(--indigo); padding: 8px 0 8px 28px; }
+.gr-summary::before { display: none; }
+
+/* ── loading / errors ── */
+.gr-loading .en { font-size: 16px; font-weight: 700; }
+.gr-loading .zh { letter-spacing: 0.04em; }
+.gr-error { border-left-width: 4px; }
+
+/* ── floating surfaces: a black edge instead of a shadow ── */
+.gr-sel-pop, .gr-modal, .gr-share, .gr-stale { border: 1px solid var(--ink); }
+.gr-audiobar { border-top: var(--rule); }
+.gr-doc { border-color: var(--stone); }
+.gr-backdrop.is-open, .gr-modal-backdrop, .gr-share-backdrop { background: rgba(255, 255, 255, 0.72); }
+/* filled buttons keep their own colours over the outline default above */
+.gr-btn--solid { background: var(--ink); color: var(--paper); }
+.gr-btn--accent { background: var(--indigo); border-color: var(--indigo); color: var(--paper); }
+.gr-btn--solid:hover:not(:disabled) { background: var(--indigo); border-color: var(--indigo); color: var(--paper); }
+/* the analysis empty state shares the body's left edge */
+.gr-analysis-body .gr-empty { padding-left: 0; padding-right: 0; }
+/* the upload target in the empty reader: a plain ruled box */
+.gr-empty .gr-upload { padding: 20px 24px; min-width: 280px; }
+.gr-empty .gr-upload .en { font-size: 11px; color: var(--ash); }
+/* notes: the same ruled list as the reading entries */
+.gr-note { background: transparent; border: none; border-top: 1px solid var(--ink); padding: 16px 0 20px; }
+.gr-note:last-child { border-bottom: 1px solid var(--ink); }
+.gr-note-time { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; color: var(--ink); }
+.gr-note-text { font-size: 16px; line-height: 1.8; letter-spacing: 0.02em; }
+.gr-note-tag { letter-spacing: 0.06em; font-weight: 700; }
+.gr-notes-list { gap: 0; }
+
+/* ════════════════════════════════════════════════════════════════
+   TABLET · TOUCH
+   The web build is also the iPad app (added to the Home Screen).
+   ════════════════════════════════════════════════════════════════ */
+
+/* iPad Safari's toolbars come and go; dvh follows them, vh does not. */
+.gr-app { height: 100vh; height: 100dvh; }
+#root { height: 100vh; height: 100dvh; }
+
+/* Full-screen from the Home Screen: keep clear of the rounded corners and
+   the home indicator. env() is 0 everywhere else. */
+.gr-app {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* The wordmark never wraps; in a narrow pane the Chinese half steps aside. */
+.gr-reader-bar { container-type: inline-size; }
+.gr-brand .mark { white-space: nowrap; }
+
+/* selection popup, placed under the selection on touch */
+.gr-sel-pop.is-below { transform: translate(-50%, 0); }
+.gr-sel-pop.is-below::after {
+  top: -6px; bottom: auto;
+  border-top: none; border-bottom: 6px solid var(--ink);
+}
+
+/* the resizer takes a finger */
+.gr-resizer { touch-action: none; }
+
+@media (pointer: coarse) {
+  /* no hover on glass: show what a mouse would have revealed */
+  .gr-file-del, .gr-note-act, .gr-entry-capture { opacity: 1; }
+  .gr-gutter { opacity: 0.6; }
+  /* 44px targets */
+  .gr-btn, .gr-menu-btn, .gr-seg button, .gr-swatch, .gr-note-act, .gr-file-del { min-height: 44px; min-width: 44px; }
+  .gr-btn--icon { justify-content: center; }
+  .gr-sel-pop button { padding: 13px 18px; font-size: 15px; }
+  .gr-resizer::after { inset: 0 -14px; }
+  /* iOS zooms into any focused field under 16px */
+  input, textarea, select, .gr-input, .gr-note-input { font-size: 16px; }
+}
+
+/* Upright tablet: reader on top, analysis below, split by a draggable rule.
+   The split reuses the same percentage the side-by-side layout saves. */
+@media (orientation: portrait) and (max-width: 1100px) {
+  .gr-app { flex-direction: column; }
+  .gr-app > .gr-reader {
+    width: 100% !important; min-width: 0 !important;
+    height: var(--split, 50%); min-height: 20%;
+    border-right: none;
+  }
+  .gr-app > .gr-analysis { width: 100% !important; flex: 1; min-height: 0; height: auto; }
+  .gr-resizer { width: 100%; height: 2px; cursor: row-resize; }
+  .gr-resizer::after { inset: -8px 0; }
+  .gr-analysis-head { padding: 0 24px; }
+  .gr-analysis-body { padding: 24px 24px 56px; }
+  .gr-head-title { font-size: 32px; }
+}
+@media (orientation: portrait) and (max-width: 1100px) and (pointer: coarse) {
+  .gr-resizer::after { inset: -16px 0; }
+}
+
+/* Narrow panes (an iPad split, or a dragged resizer): drop the least useful
+   labels before anything wraps, so the two headers stay on one line. */
+.gr-analysis-head { container-type: inline-size; }
+.gr-reader-bar > * { min-width: 0; }
+.gr-ctrls { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.gr-ctrls::-webkit-scrollbar { display: none; }
+@container (max-width: 700px) {
+  .gr-tab em, .gr-tool-label { display: none; }
+  .gr-head-tools { gap: 12px; }
+  .gr-tabs { gap: 18px; }
+}
+@container (max-width: 560px) {
+  .gr-head-tools .gr-seg button { padding: 7px 12px; }
+}
+@media (pointer: coarse) {
+  /* 44px buttons + padding: both headers get the same floor */
+  .gr-reader-bar, .gr-analysis-head { min-height: 72px; }
+}
+
+/* ════════ TOAST ════════
+   Replaces alert(): a strip along the bottom that never takes focus. */
+.gr-toast {
+  position: fixed; z-index: 120;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  max-width: min(560px, calc(100vw - 32px));
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 12px 12px 18px;
+  background: var(--ink); color: var(--paper);
+  font-size: 14px; line-height: 1.5;
+  animation: gr-fade 0.18s ease;
+}
+.gr-toast--error { background: var(--indigo); }
+.gr-toast--warn { background: var(--ink); border-left: 4px solid var(--indigo); }
+.gr-toast-x { background: none; border: none; color: inherit; cursor: pointer; display: flex; padding: 4px; opacity: .8; }
+.gr-toast-x:hover { opacity: 1; }
+.gr-file-del.is-armed { opacity: 1; color: var(--paper); background: var(--indigo); font-size: 12px; font-weight: 700; padding: 2px 8px; }
+
+
+/* ════════ READER TOOLBAR · narrow panes ════════
+   The bar holds more now (inbox, focus). As the pane narrows, the least
+   needed parts step aside in this order, so nothing is ever cut off:
+   the Chinese wordmark, labels and the zoom readout, the wordmark itself,
+   fit-to-width, then the zoom buttons (pinch and ⌘± still zoom). */
+/* Widths are the bar's content box (it has 66px of left padding for the
+   menu button). Half of a 1440 screen gives about 630; an iPad landscape
+   half about 510. */
+@container (max-width: 760px) {
+  .gr-brand .zh { display: none; }
+  .gr-ctrls { gap: 6px; }
+}
+@container (max-width: 700px) {
+  .gr-zoom-val, .gr-timer-phase, .gr-timer-stop { display: none; }
+}
+@container (max-width: 600px) {
+  .gr-brand, .gr-focus-label { display: none; }
+}
+@container (max-width: 520px) {
+  .gr-fit-btn { display: none; }
+}
+@container (max-width: 420px) {
+  .gr-zoom { display: none; }
+}
+.gr-reader-bar { gap: 10px; justify-content: flex-start; }
+.gr-reader-bar > .gr-brand { margin-right: auto; }
+
+/* focus start + timer */
+.gr-focus-start { gap: 6px; }
+.gr-focus-label { font-size: 12px; font-weight: 500; }
+.gr-timer { border-color: var(--ink); background: var(--paper); }
+.gr-timer.is-ending { border-color: var(--indigo); background: var(--indigo); }
+.gr-timer.is-ending .gr-timer-clock, .gr-timer.is-ending .gr-timer-phase,
+.gr-timer.is-ending .gr-timer-btn { color: var(--paper); }
+@media (prefers-reduced-motion: no-preference) {
+  .gr-timer.is-ending { animation: gr-ending 2s ease-in-out infinite; }
+}
+@keyframes gr-ending { 50% { opacity: .75; } }
+
+/* ════════ THOUGHT INBOX ════════ */
+.gr-inbox-btn { position: relative; }
+.gr-inbox-btn.is-open { background: var(--ink); color: var(--paper); }
+.gr-inbox-count {
+  position: absolute; top: -7px; right: -7px;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  background: var(--indigo); color: var(--paper);
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.gr-inbox {
+  position: fixed; z-index: 85;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(480px, calc(100dvh - 120px)); overflow-y: auto;
+  background: var(--paper); border: 1px solid var(--ink);
+  padding: 14px 16px 16px;
+  animation: gr-fade 0.12s ease;
+}
+.gr-inbox-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; letter-spacing: .06em; margin-bottom: 10px; }
+.gr-inbox-x { background: none; border: none; cursor: pointer; color: var(--ash); display: flex; padding: 4px; }
+.gr-inbox-input {
+  width: 100%; border: 1px solid var(--ink); background: var(--paper); color: var(--ink);
+  padding: 10px 12px; font: inherit; font-size: 15px;
+}
+.gr-inbox-input:focus { outline: none; border-color: var(--indigo); box-shadow: inset 0 0 0 1px var(--indigo); }
+.gr-inbox-hint { font-size: 12px; color: var(--ash); margin: 6px 0 10px; }
+.gr-inbox-list { list-style: none; padding: 0; margin: 0; }
+.gr-inbox-list li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--stone); }
+.gr-inbox-text { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.gr-inbox-next { display: block; font-size: 12px; color: var(--ash); margin-top: 2px; }
+.gr-inbox-done {
+  flex: 0 0 auto; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--ink); color: var(--ink); cursor: pointer;
+}
+.gr-inbox-done:hover { background: var(--ink); color: var(--paper); }
+.gr-inbox-empty { font-size: 13px; color: var(--ash); margin: 4px 0 0; }
+@media (pointer: coarse) {
+  .gr-inbox-done { width: 44px; height: 44px; }
+  .gr-inbox-input { font-size: 16px; }
+}
+
+/* ════════ RESUME BAR ════════
+   Under the toolbar: where you were, and what you meant to do next. */
+.gr-resume {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--ink);
+  background: var(--paper);
+  font-size: 14px; line-height: 1.45;
+}
+.gr-resume-k { flex: 0 0 auto; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--paper); background: var(--indigo); padding: 2px 8px; }
+.gr-resume-t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.gr-resume-x { flex: 0 0 auto; background: none; border: none; cursor: pointer; color: var(--ash); display: flex; padding: 6px; }
+.gr-resume.is-ready { background: var(--indigo-l); }
+.gr-resume-go { flex: 0 0 auto; }
+@media (pointer: coarse) { .gr-resume-x { min-width: 44px; min-height: 44px; justify-content: center; } }
+
+/* ════════ BREAK SCREEN · what you set aside ════════ */
+.gr-lock-thoughts { margin: 4px auto 22px; max-width: 360px; text-align: left; border-top: 1px solid var(--ink); padding-top: 12px; }
+.gr-lock-thoughts-head { font-size: 12px; font-weight: 700; letter-spacing: .06em; margin-bottom: 6px; }
+.gr-lock-thoughts ul { margin: 0; padding-left: 1.1em; font-size: 14px; line-height: 1.6; color: var(--graphite); }
+.gr-lock-thoughts-more { font-size: 12px; color: var(--ash); margin-top: 4px; }
+
+/* ════════ NOTES · page link ════════ */
+.gr-note-page {
+  background: none; border: 1px solid var(--ink); color: var(--ink); cursor: pointer;
+  font: 700 11px/1 var(--zh-sans); padding: 4px 6px; font-variant-numeric: tabular-nums;
+}
+.gr-note-page:hover { background: var(--ink); color: var(--paper); }
+@media (pointer: coarse) { .gr-note-page { min-height: 32px; padding: 6px 10px; } }
+
+/* ════════ LIBRARY · progress ════════ */
+.gr-file-name { display: flex; flex-direction: column; gap: 5px; white-space: normal; overflow: hidden; }
+.gr-file-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gr-file-progress { display: flex; align-items: center; gap: 8px; }
+.gr-file-bar { flex: 1; height: 3px; background: var(--mist); position: relative; }
+.gr-file-bar > span { position: absolute; inset: 0 auto 0 0; background: var(--indigo); }
+.gr-file-pages { font-size: 11px; color: var(--ash); font-variant-numeric: tabular-nums; }

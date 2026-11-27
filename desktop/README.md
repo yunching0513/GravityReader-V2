@@ -9,10 +9,14 @@ silicon (arm64) and Intel (x64).
 If you just want to run the app on your Mac, let GitHub build it:
 
 1. **Actions** → **Build macOS** → **Run workflow**.
-2. When it finishes, open the run and download the artifact for your Mac:
-   - `YunsReader-macOS-arm64` — Apple silicon (M1/M2/M3/M4)
-   - `YunsReader-macOS-x64` — Intel
-   (Not sure which? `uname -m` → `arm64` or `x86_64`.)
+2. When it finishes (~2 min), open the run and download `YunsReader-macOS-arm64`
+   — Apple silicon (M1/M2/M3/M4).
+
+   For an **Intel** Mac (`uname -m` says `x86_64`), tick the workflow's `intel`
+   input. Note that GitHub is retiring the `macos-13` Intel runners: as of the
+   last check this repo couldn't get one, and the job simply sits queued. If
+   that's still the case, build locally on the Intel Mac instead — see
+   *Build it yourself* below, which now targets whichever Mac it runs on.
 3. Unzip it, open the `.dmg`, drag **Yun's Reader** to **Applications**.
 4. **Clear the quarantine flag** — the app is ad-hoc signed but *not notarized*
    (that needs a paid Apple Developer account), so macOS blocks it on first
@@ -32,7 +36,7 @@ If you just want to run the app on your Mac, let GitHub build it:
    <https://aistudio.google.com/app/apikey>). Reading, highlighting and the
    library work without one; translation, read-aloud and summaries need it.
 
-Pushing a `v*` tag builds both architectures automatically.
+Pushing a `v*` tag builds Apple silicon automatically.
 
 ## Build it yourself
 

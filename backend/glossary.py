@@ -13,34 +13,12 @@ The vault is the source of truth; this module only parses/upserts that one file.
 
 import os
 import re
-import json
 import datetime
 
 # ── Obsidian vault detection ──────────────────────────────────────────
-# Obsidian records every known vault in this JSON. We pick the one currently
-# open, else the most recently used. `GR_VAULT_DIR` overrides everything.
-_OBSIDIAN_JSON = os.path.expanduser(
-    "~/Library/Application Support/obsidian/obsidian.json"
-)
-
-
-def find_vault():
-    """Return the absolute path of the user's Obsidian vault, or None."""
-    override = os.getenv("GR_VAULT_DIR")
-    if override:
-        return override if os.path.isdir(override) else None
-    try:
-        with open(_OBSIDIAN_JSON, "r", encoding="utf-8") as f:
-            vaults = (json.load(f) or {}).get("vaults", {}) or {}
-    except Exception:
-        return None
-    # Prefer the open vault; fall back to the most recently touched.
-    candidates = [v for v in vaults.values() if isinstance(v, dict) and v.get("path")]
-    if not candidates:
-        return None
-    candidates.sort(key=lambda v: (bool(v.get("open")), v.get("ts", 0)), reverse=True)
-    path = candidates[0]["path"]
-    return path if os.path.isdir(path) else None
+# Shared with the associative-notes module. It used to live here and only
+# knew the macOS config path, so the Windows build could never find a vault.
+from vault import find_vault  # noqa: E402
 
 
 def glossary_path():

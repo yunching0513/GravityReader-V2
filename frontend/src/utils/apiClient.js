@@ -40,17 +40,60 @@ async function callGemini(model, body, key, { timeout = DEFAULT_TIMEOUT_MS } = {
         });
     } catch (e) {
         if (e.name === 'AbortError') throw new Error('Gemini 沒有在時限內回應,請再試一次。');
-        throw e;
+        throw new Error(networkMessage());
     } finally {
         clearTimeout(timer);
     }
     if (!res.ok) {
         const text = await res.text().catch(() => '');
-        const err = new Error(`Gemini ${res.status}: ${text.slice(0, 200)}`);
+        let detail = '';
+        try { detail = JSON.parse(text)?.error?.message || ''; } catch (_) { detail = text; }
+        const err = new Error(geminiMessage(res.status, detail));
         err.status = res.status;
+        err.detail = detail.slice(0, 300);   // the raw reason, for the console, not the screen
+        console.error(`Gemini ${res.status}:`, err.detail);
         throw err;
     }
     return res.json();
+}
+
+function networkMessage() {
+    return (typeof navigator !== 'undefined' && navigator.onLine === false)
+        ? '現在沒有網路。PDF 和筆記照常可用,翻譯等 AI 功能要等連上網路。'
+        : '連不上 Gemini。請確認網路,或稍後再試。';
+}
+
+// Gemini's own error text is English JSON meant for developers. Say what
+// happened and what to do about it instead.
+function geminiMessage(status, detail = '') {
+    const d = String(detail).toLowerCase();
+    if (status === 400 && /api key|api_key/.test(d)) return '金鑰無效。請到「API 金鑰」重新貼上,確認有完整複製。';
+    if (status === 400) return 'Gemini 看不懂這次的請求。選取的文字太長的話,試著選短一點。';
+    if (status === 401 || status === 403) return '這把金鑰沒有權限使用 Gemini。請到 Google AI Studio 確認金鑰。';
+    if (status === 404) return '找不到這個 Gemini 模型,可能已經停用。請更新 App。';
+    if (status === 429) return 'Gemini 的免費額度暫時用完了。等一兩分鐘再試。';
+    if (status >= 500) return 'Gemini 那邊暫時出問題了。稍後再試。';
+    return `Gemini 回應錯誤(${status})。稍後再試。`;
+}
+
+/**
+ * One readable sentence for any error the API layer can throw: the web
+ * build's Gemini errors (already readable), the desktop backend's
+ * `{detail}` responses, and a dropped connection.
+ */
+export function friendlyError(err, fallback = '發生錯誤,請再試一次。') {
+    if (!err) return fallback;
+    const resp = err.response;
+    if (resp) {
+        const detail = resp.data && resp.data.detail;
+        if (resp.status === 503 && /key|金鑰/i.test(String(detail || ''))) return '尚未設定 Gemini API 金鑰,請到「API 金鑰」填入。';
+        if (typeof detail === 'string' && detail && !/^\s*[{[]/.test(detail)) return detail;
+        return geminiMessage(resp.status, typeof detail === 'string' ? detail : '');
+    }
+    if (err.request && !err.status) return NO_BACKEND ? networkMessage() : '連不上本機的閱讀器服務。請重新開啟 App。';
+    const msg = String(err.message || '');
+    if (!msg || /^\s*[{[]/.test(msg) || /^(TypeError|Failed to fetch|Network Error)/i.test(msg)) return fallback;
+    return msg;
 }
 
 function extractText(json) {
@@ -150,6 +193,104 @@ ${text}`;
     return out.trim();
 }
 
+// Lower the difficulty of a passage without lowering its content. `caution_zh`
+// (where the metaphor breaks) is required on purpose — a metaphor you can't see
+// the edges of is a mnemonic, not a thinking tool.
+const METAPHOR_SCHEMA = {
+    type: 'OBJECT',
+    properties: {
+        metaphor_zh: { type: 'STRING' },
+        plain_zh: { type: 'STRING' },
+        mapping: {
+            type: 'ARRAY',
+            items: {
+                type: 'OBJECT',
+                properties: { from: { type: 'STRING' }, to: { type: 'STRING' } },
+                required: ['from', 'to'],
+            },
+        },
+        caution_zh: { type: 'STRING' },
+    },
+    required: ['metaphor_zh', 'plain_zh', 'caution_zh'],
+};
+
+// Returns the JSON string, matching translate()'s shape.
+export async function metaphor(text) {
+    if (!NO_BACKEND) {
+        const r = await axios.post(`${BACKEND_BASE}/api/metaphor`, { text });
+        return r.data;
+    }
+    const key = getStoredKey();
+    if (!key) throw Object.assign(new Error('尚未設定 Gemini API 金鑰,請到設定填入。'), { status: 503 });
+
+    const prompt = `You are helping a researcher who is stuck on a difficult passage.
+Lower the difficulty without lowering the content.
+
+Reply in Traditional Chinese (Taiwan) with these fields:
+metaphor_zh: an everyday metaphor for the core idea. Concrete, from ordinary life.
+plain_zh: the same idea restated plainly, no jargon.
+mapping: which part of the metaphor stands for which part of the idea.
+caution_zh: where this metaphor breaks down and would mislead if pushed further.
+
+Passage:
+${text}`;
+
+    const json = await callGemini(GEMINI_MODEL, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+            responseMimeType: 'application/json',
+            responseSchema: METAPHOR_SCHEMA,
+        },
+    }, key);
+    let out = extractText(json).trim();
+    if (out.startsWith('```json')) out = out.slice(7);
+    else if (out.startsWith('```')) out = out.slice(3);
+    if (out.endsWith('```')) out = out.slice(0, -3);
+    return out.trim();
+}
+
+// Role-play reading (演化假裝遊戲濾鏡): how a given person would read the
+// passage, what they'd notice that you'd walk past, and what they'd ask.
+const PRETEND_SCHEMA = {
+    type: 'OBJECT',
+    properties: {
+        reading_zh: { type: 'STRING' },
+        notices_zh: { type: 'STRING' },
+        question_zh: { type: 'STRING' },
+    },
+    required: ['reading_zh', 'notices_zh', 'question_zh'],
+};
+
+export async function pretend(text, persona) {
+    if (!NO_BACKEND) {
+        const r = await axios.post(`${BACKEND_BASE}/api/pretend`, { text, persona });
+        return r.data;
+    }
+    const key = getStoredKey();
+    if (!key) throw Object.assign(new Error('尚未設定 Gemini API 金鑰,請到設定填入。'), { status: 503 });
+    const who = String(persona || '').trim().slice(0, 120);
+    const prompt = `Suspend ordinary assumptions for a moment and read this passage
+as ${who}. Stay in character, but stay honest: do not invent facts about the
+passage that are not there.
+
+Reply in Traditional Chinese (Taiwan) with these fields:
+reading_zh: how ${who} would read and react to this passage.
+notices_zh: what ${who} would notice here that a modern researcher walks past.
+question_zh: the one question ${who} would ask about it.
+
+Passage:
+${text}`;
+    const json = await callGemini(GEMINI_MODEL, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema: PRETEND_SCHEMA },
+    }, key);
+    let out = extractText(json).trim();
+    if (out.startsWith('```json')) out = out.slice(7);
+    else if (out.startsWith('```')) out = out.slice(3);
+    if (out.endsWith('```')) out = out.slice(0, -3);
+    return out.trim();
+}
+
 export async function summarize(text, length) {
     if (!NO_BACKEND) {
         const r = await axios.post(`${BACKEND_BASE}/api/summarize`, { text, length });
@@ -230,7 +371,7 @@ export async function saveKey(key) {
     try {
         await callGemini(GEMINI_MODEL, { contents: [{ parts: [{ text: 'ping' }] }] }, k, { timeout: 20000 });
     } catch (e) {
-        throw new Error('金鑰驗證失敗:' + (e.message || '').slice(0, 140));
+        throw new Error(e.message || '金鑰驗證失敗,請再試一次。');
     }
     setStoredKey(k);
     return { ok: true, hasKey: true };
@@ -309,5 +450,43 @@ export async function glossaryList() {
 export async function glossaryRecord(zh, en) {
     if (NO_BACKEND) throw new Error('片語本(Obsidian)僅在桌面版可用。');
     const r = await axios.post(`${BACKEND_BASE}/api/glossary/record`, { zh, en });
+    return r.data;
+}
+
+// ── Obsidian associative notes ──────────────────────────────────────────────
+// Desktop-only: the vault is on disk. In the browser build these report
+// "unavailable" — except writing a note, which downloads the same Markdown
+// instead, so you can drop it into your vault by hand.
+// `count` makes the backend index (= read) the whole vault. Only pass it once
+// the user has turned on associative reading.
+export async function vaultStatus(folder, count = false) {
+    if (NO_BACKEND) return { available: false };
+    const params = {};
+    if (folder) params.folder = folder;
+    if (count) params.count = true;
+    const r = await axios.get(`${BACKEND_BASE}/api/vault/status`, { params });
+    return r.data;
+}
+export async function vaultAssociate(payload) {
+    if (NO_BACKEND) return { associations: [], fallback: true, reason: 'web' };
+    const r = await axios.post(`${BACKEND_BASE}/api/vault/associate`, payload);
+    return r.data;
+}
+export async function vaultWriteNote(payload) {
+    if (NO_BACKEND) {
+        const blob = new Blob([payload.markdown], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${payload.filename}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Revoking synchronously can beat the download to the URL, and the
+        // browser then falls back to a generic "download" filename.
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return { downloaded: true, gr_id: payload.gr_id };
+    }
+    const r = await axios.post(`${BACKEND_BASE}/api/vault/note`, payload);
     return r.data;
 }
