@@ -18,7 +18,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 const IS_COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
 const POP_HALF_WIDTH = 130; // keep the popup's centre this far from the screen edge
 
-const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, highlightedText, highlightColor, externalFile, docName, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
+const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, highlightedText, highlightColor, externalFile, docName, onOpenFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -148,7 +148,12 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
         }
     };
 
+    // Hand the file to the app when it can take it: the app saves it to the
+    // library, which is what gives a document an id — notes, the saved page and
+    // resume-on-reload all hang off that. Opening it only locally (the old
+    // behaviour, still the fallback) left a PDF you couldn't take notes on.
     const onFileChange = (event) => {
+        if (onOpenFile) { onOpenFile(event); return; }
         autoFitDoneRef.current = false;
         enterFitMode(true);
         setFile(event.target.files[0]);

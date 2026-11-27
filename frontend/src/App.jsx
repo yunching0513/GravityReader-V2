@@ -76,6 +76,8 @@ function App() {
     const [translationMode, setTranslationMode] = useSetting('read.translationMode');
     const [customSummaryLength, setCustomSummaryLength] = useSetting('read.summaryLength');
     const [isSummarizing, setIsSummarizing] = useState(false);
+    const [summaryMeta, setSummaryMeta] = useState(null);        // {pages, total, truncated}
+    const [summaryProgress, setSummaryProgress] = useState(null); // {done, total} while extracting
 
     // My Library State
     const [libraryFiles, setLibraryFiles] = useState([]);
@@ -155,7 +157,11 @@ function App() {
     const [metaphor, setMetaphor] = useState(null);   // {loading, result, error, text}
     const metaphorTokenRef = useRef(0);
     const [staleDb, setStaleDb] = useState(false);
-    const lastDumpAtRef = useRef(0);
+    // Persisted so a reload doesn't re-ask; in-memory it reset on every refresh.
+    const DUMP_AT_KEY = 'gr.lastDumpAt';
+    const lastDumpAtRef = useRef((() => {
+        try { return Number(localStorage.getItem(DUMP_AT_KEY)) || 0; } catch (_) { return 0; }
+    })());
 
     // Another window upgraded the IndexedDB schema, so this window's connection
     // is dead and re-opening at the old version would throw. Ask for a reload
@@ -170,7 +176,10 @@ function App() {
     const DUMP_COOLDOWN_MS = 30 * 60 * 1000;
 
     const maybeOpenDump = useCallback(async (fileId, name) => {
-        if (!getSetting('flow.dumpBeforeStart')) return;
+        // Only for readers who switched the Pomodoro on. dumpBeforeStart
+        // defaults to true while flow.enabled defaults to false, so a brand-new
+        // reader used to meet this un-dismissable prompt on their very first PDF.
+        if (!getSetting('flow.enabled') || !getSetting('flow.dumpBeforeStart')) return;
         if (Date.now() - lastDumpAtRef.current < DUMP_COOLDOWN_MS) return;
         let lastCut = null;
         try {
@@ -182,6 +191,7 @@ function App() {
 
     const closeDump = useCallback((saved) => {
         lastDumpAtRef.current = Date.now();
+        try { localStorage.setItem(DUMP_AT_KEY, String(lastDumpAtRef.current)); } catch (_) { /* private mode */ }
         setDumpPrompt(null);
         // Starting the clock is the point of the ritual — but only if the user
         // actually has the Pomodoro on, and only if one isn't already running.
@@ -538,18 +548,46 @@ function App() {
         api.listDigests().then(setDigestList).catch(() => {});
     }, []);
 
-    // Load Library on Mount
+    // Load the library on mount, and pick up where the reader left off: the
+    // last library document reopens at its saved page. Coming back used to mean
+    // an empty reader and the getting-started checklist asking you to open a
+    // PDF again — the session-to-session gap this app exists to close.
     useEffect(() => {
-        loadLibrary();
+        loadLibrary().then((files) => {
+            const lastId = getSetting('ui.lastFileId', null);
+            const last = lastId != null && files.find(f => f.id === lastId);
+            if (last) loadFileFromLibrary(last, { resume: true });
+        });
     }, []);
 
     const loadLibrary = async () => {
         try {
-            const files = await getFiles();
-            setLibraryFiles(files.sort((a, b) => b.timestamp - a.timestamp));
+            const files = (await getFiles()).sort((a, b) => b.timestamp - a.timestamp);
+            setLibraryFiles(files);
+            return files;
         } catch (err) {
             console.error("Failed to load library:", err);
+            return [];
         }
+    };
+
+    // Opening a different document starts the reading pane fresh. The previous
+    // document's translation, summary, explanation or digest used to stay on
+    // the right while the left showed the new paper.
+    const resetReadingPane = () => {
+        translateTokenRef.current++;   // drop answers still in flight for the old doc
+        summaryTokenRef.current++;
+        metaphorTokenRef.current++;
+        setAnalysisResult(null);
+        setSummaryResult(null);
+        setSummaryMeta(null);
+        setSummaryProgress(null);
+        setIsLoading(false);
+        setIsSummarizing(false);
+        setError(null);
+        setMetaphor(null);
+        setHighlightedText('');
+        setViewMode('analysis');
     };
 
     // Load this document's notes whenever the active file changes.
@@ -667,7 +705,10 @@ function App() {
                 const newId = await saveFile(file);
                 await loadLibrary();
                 // Also load into reader immediately
+                resetReadingPane();
                 setExternalFile(file);
+                setSettingPath('ui.lastFileId', newId);
+                setIsSidebarOpen(false);
                 goPane('reader');
                 setCurrentFileId(newId); // Assuming saveFile returns the ID, checking db.js implementation
                 setCurrentDocName(file.name);
@@ -680,14 +721,25 @@ function App() {
         }
     };
 
-    const loadFileFromLibrary = (fileData) => {
+    // Stable identity for the memoised PDF pane (handleFileChange is re-created
+    // every render).
+    const handleFileChangeRef = useRef(null);
+    handleFileChangeRef.current = handleFileChange;
+    const openFileFromReader = useCallback((e) => handleFileChangeRef.current(e), []);
+
+    // resume: reopened automatically at startup — no drawer to close, and no
+    // "clear your head before starting" prompt for simply coming back.
+    const loadFileFromLibrary = (fileData, { resume = false } = {}) => {
         reader.stop();
+        resetReadingPane();
         setExternalFile(fileData.data);
         setCurrentFileId(fileData.id);
         setCurrentDocName(fileData.name);
         setInitialPage(fileData.lastPage || 1);
+        setSettingPath('ui.lastFileId', fileData.id);
+        setIsSidebarOpen(false);
         goPane('reader');
-        maybeOpenDump(fileData.id, fileData.name);
+        if (!resume) maybeOpenDump(fileData.id, fileData.name);
     };
 
     // Open a Zotero paper's PDF straight into the reader (read-only).
@@ -696,6 +748,7 @@ function App() {
         try {
             reader.stop();
             const blob = await api.zoteroFile(item.attKey);
+            resetReadingPane();
             setExternalFile(blob);
             setCurrentFileId(`zotero:${item.attKey}`);
             setCurrentDocName(item.title);
@@ -862,46 +915,79 @@ function App() {
         setBookTo(pdf.numPages);
     }, []);
 
-    // Summarising only ever sends the first SUMMARY_CHAR_BUDGET characters, so
-    // stop extracting once we have them — a 400-page thesis used to decode every
-    // page's text layer before throwing 95% of it away.
-    const SUMMARY_CHAR_BUDGET = 30000;
+    // How much text a summary may send. It used to be 30 000 characters — about
+    // the first 7 pages of an ordinary 25-page paper — while the result was
+    // labelled 全文摘要. Gemini Flash takes ~1M tokens, so 400 000 characters
+    // (~100k tokens) covers a whole paper and most of a thesis; anything longer
+    // is labelled with the pages it actually covers. Extraction still stops at
+    // the budget, so a huge PDF never decodes text it won't send.
+    const SUMMARY_CHAR_BUDGET = 400000;
 
-    const extractPdfText = async (maxChars = Infinity) => {
+    // → { text, pages: pages included, total, truncated }
+    const extractPdfText = async (maxChars = Infinity, onProgress) => {
         const doc = pdfDocumentRef.current;
-        if (!doc) return '';
+        if (!doc) return { text: '', pages: 0, total: 0, truncated: false };
         const parts = [];
         let length = 0;
-        for (let i = 1; i <= doc.numPages && length < maxChars; i++) {
+        let i = 1;
+        for (; i <= doc.numPages && length < maxChars; i++) {
             const pageText = await extractPageText(i);
             parts.push(pageText);
             length += pageText.length + 1;
+            if (onProgress && (i % 5 === 0 || i === doc.numPages)) onProgress(i, doc.numPages);
         }
         const full = parts.join('\n');
-        return Number.isFinite(maxChars) ? full.slice(0, maxChars) : full;
+        const truncated = length > maxChars || i <= doc.numPages;
+        return {
+            text: Number.isFinite(maxChars) ? full.slice(0, maxChars) : full,
+            pages: parts.length,
+            total: doc.numPages,
+            truncated,
+        };
     };
+    const summaryTokenRef = useRef(0);
 
     const handleSummarize = async (length) => {
         if (!pdfDocumentRef.current) {
             alert("請先載入 PDF 文件。");
             return;
         }
+        // An empty or nonsensical custom length used to go out as
+        // "approximately NaN words" and spend a request.
+        const words = Math.round(Number(length));
+        if (!Number.isFinite(words) || words < 50 || words > 5000) {
+            setActiveTab('reading');
+            goPane('analysis');
+            setError('摘要長度請填 50 到 5000 之間的字數。');
+            return;
+        }
+        const token = ++summaryTokenRef.current;
+        setIsSidebarOpen(false); // the result appears behind the drawer otherwise
         setIsSummarizing(true);
         setActiveTab('reading');
         goPane('analysis');
         setViewMode('summary');
         setSummaryResult(null);
+        setSummaryMeta(null);
+        setSummaryProgress(null);
         setError(null);
 
         try {
-            const text = await extractPdfText(SUMMARY_CHAR_BUDGET);
-            const summary = await api.summarize(text, length);
+            const ex = await extractPdfText(SUMMARY_CHAR_BUDGET, (done, total) => {
+                if (summaryTokenRef.current === token) setSummaryProgress({ done, total });
+            });
+            if (summaryTokenRef.current !== token) return;
+            setSummaryProgress(null);
+            const summary = await api.summarize(ex.text, words);
+            if (summaryTokenRef.current !== token) return; // another document was opened meanwhile
             setSummaryResult(summary);
+            setSummaryMeta({ pages: ex.pages, total: ex.total, truncated: ex.truncated });
         } catch (err) {
+            if (summaryTokenRef.current !== token) return;
             console.error("Summarize Error:", err);
             setError(friendlyError(err, '文件摘要生成失敗,請再試一次。'));
         } finally {
-            setIsSummarizing(false);
+            if (summaryTokenRef.current === token) { setIsSummarizing(false); setSummaryProgress(null); }
         }
     };
 
@@ -998,7 +1084,11 @@ function App() {
                                             </button>
                                             <button
                                                 className="gr-file-del"
-                                                onClick={(e) => { e.stopPropagation(); deleteFile(file.id).then(loadLibrary); }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (getSetting('ui.lastFileId', null) === file.id) setSettingPath('ui.lastFileId', null);
+                                                    deleteFile(file.id).then(loadLibrary);
+                                                }}
                                                 title="刪除"
                                             >
                                                 <X size={14} />
@@ -1653,6 +1743,7 @@ function App() {
                     highlightColor={highlightColor}
                     externalFile={externalFile}
                     docName={currentDocName}
+                    onOpenFile={openFileFromReader}
                     initialPage={initialPage}
                     onPageChange={handlePageChange}
                     requestedPage={requestedPage}
@@ -1785,14 +1876,18 @@ function App() {
                         <div className="gr-head-title">
                             {activeTab === 'notes'
                                 ? '我的筆記'
-                                : viewMode === 'summary' ? '全文摘要'
+                                : viewMode === 'summary' ? (summaryMeta && summaryMeta.truncated ? '摘要(部分)' : '全文摘要')
                                 : viewMode === 'digest' ? '每日摘要'
                                 : '對譯精讀'}
                         </div>
                         <div className="gr-head-sub">
                             {activeTab === 'notes'
                                 ? (currentDocName ? `《${currentDocName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
-                                : viewMode === 'summary' ? '由 AI 生成的全文摘要。'
+                                : viewMode === 'summary' ? (
+                                    !summaryMeta ? '由 AI 生成的摘要。'
+                                    : summaryMeta.truncated
+                                        ? `由 AI 生成 · 只涵蓋第 1–${summaryMeta.pages} 頁(共 ${summaryMeta.total} 頁,其餘超過長度上限)。`
+                                        : `由 AI 生成 · 涵蓋全文 ${summaryMeta.total} 頁。`)
                                 : viewMode === 'digest' ? (activeDigest ? `${activeDigest.date} · PhD Research Digest` : '請從側欄選擇摘要')
                                 : isMobile ? '在「原文」頁長按選取文字,即可對譯。' : '於左側 PDF 中選取文字以進行對譯。'}
                         </div>
@@ -1817,7 +1912,11 @@ function App() {
                                 <div className="gr-loading">
                                     <div className="en">{isSummarizing ? 'Synthesizing synopsis' : 'Reading the passage'}</div>
                                     <div className="gr-bar" />
-                                    <div className="zh">{isSummarizing ? '正在凝練摘要' : '正在對譯文本'}</div>
+                                    <div className="zh">
+                                        {isSummarizing
+                                            ? (summaryProgress ? `擷取文字 ${summaryProgress.done} / ${summaryProgress.total} 頁` : '正在凝練摘要')
+                                            : '正在對譯文本'}
+                                    </div>
                                 </div>
                             )}
 
