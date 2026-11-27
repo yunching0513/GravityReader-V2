@@ -348,7 +348,8 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
   margin-bottom: 8px;
 }
 .gr-side-btn:last-child { margin-bottom: 0; }
-.gr-side-btn:hover { border-color: var(--red); background: var(--red-08); }
+.gr-side-btn:hover:not(:disabled) { border-color: var(--red); background: var(--red-08); }
+.gr-side-btn:disabled, .gr-len-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .gr-side-btn .zh {
   font-family: var(--sans);
   font-size: var(--fs-14);
@@ -357,7 +358,7 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
   color: var(--ink);
   transition: color var(--t2) var(--e);
 }
-.gr-side-btn:hover .zh { color: var(--red); }
+.gr-side-btn:hover:not(:disabled) .zh { color: var(--red); }
 .gr-side-btn .en {
   display: block;
   font-family: var(--sans);
@@ -403,7 +404,7 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
   letter-spacing: 0.1em;
   color: var(--ash);
 }
-.gr-len-btn:hover { border-color: var(--red); background: var(--red-08); }
+.gr-len-btn:hover:not(:disabled) { border-color: var(--red); background: var(--red-08); }
 .gr-len-btn:hover .v { color: var(--red); }
 
 .gr-len-custom { display: flex; gap: 8px; }
@@ -442,8 +443,29 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
   border-bottom: 2px solid var(--ink);
   background: var(--paper);
   min-height: 72px;   /* masthead · paired with .gr-analysis-head — keep the two in step */
+  flex-wrap: nowrap;  /* never wrap: the title below shrinks instead, so heights stay paired */
+  position: relative; /* anchor for the floating timer on narrow panes */
 }
-.gr-brand { display: inline-flex; align-items: baseline; gap: 12px; }
+.gr-brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+.gr-ctrls, .gr-timer { flex-shrink: 0; }
+/* The open document's title — the one masthead item allowed to give way. */
+.gr-doc-title {
+  font-family: var(--sans);
+  font-size: var(--fs-14);
+  font-weight: 700;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .gr-brand .mark {
   font-family: var(--sans);
   font-size: var(--fs-20);
@@ -505,6 +527,8 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
 .gr-btn--accent:active:not(:disabled) { background: var(--red-900); border-color: var(--red-900); }
 
 .gr-zoom { display: flex; align-items: center; gap: 4px; }
+.gr-zoom-toggle { display: none; }
+.gr-zoom-step.is-on { border-color: var(--ink); }
 .gr-zoom-val {
   font-family: var(--sans);
   font-size: var(--fs-11);
@@ -519,11 +543,20 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
 .gr-canvas {
   flex: 1;
   overflow: auto;
+  /* Always reserve the vertical scrollbar: while a page re-renders it is
+     briefly short, the scrollbar vanishes, the width jumps ~10px and
+     fit-to-width chased its own tail. */
+  overflow-y: scroll;
   display: flex;
-  justify-content: center;
+  /* flex-start + auto margins on the page, not justify-content:center: a
+     centred flex item wider than its scroller overflows to the left too, and
+     that half can never be scrolled to (it hid the page's left edge when zoomed). */
+  justify-content: flex-start;
   align-items: flex-start;
   padding: 40px;
   background: var(--paper-2);
+  /* the page handles pinch itself; the browser keeps panning */
+  touch-action: pan-x pan-y;
 }
 .gr-doc { border: 1px solid var(--stone); background: #fff; }
 
@@ -682,7 +715,7 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
   align-items: stretch;
   justify-content: space-between;
   gap: 24px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;  /* paired with .gr-reader-bar — see the container queries */
   min-height: 72px;
 }
 .gr-head-kicker {
@@ -1497,7 +1530,7 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
 }
 
 /* ════════ PAGE-TURN UX ════════ */
-.gr-doc-wrap { transition: opacity var(--t3) var(--e); }
+.gr-doc-wrap { transition: opacity var(--t3) var(--e); margin: 0 auto; }
 
 .gr-page-ind {
   background: none;
@@ -2453,11 +2486,8 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
   .gr-analysis-head { min-height: 56px; }
   .gr-reader-bar { padding: 8px 12px 8px 64px; gap: 8px; justify-content: flex-start; }
   .gr-analysis-head { padding: 0 12px 0 64px; align-items: center; flex-wrap: nowrap; }
-  .gr-brand,
-  .gr-zoom,                    /* fit-to-width runs automatically */
-  .gr-tabs,                    /* the bottom bar takes over Reading / Notes */
-  .gr-tool-label,
-  .gr-timer-phase { display: none; }
+  .gr-tabs { display: none; }  /* the bottom bar takes over Reading / Notes */
+  /* (masthead contents: see the container queries — they follow pane width) */
   .gr-ctrls { gap: 6px; }
   .gr-head-tools { gap: 10px; margin-left: auto; }
 
@@ -2569,4 +2599,48 @@ label:has(> .gr-sr-only:focus-visible) { outline: 2px solid var(--blue); outline
     height: 7px;
     background: var(--red);
   }
+}
+
+/* ════════ PANE-WIDTH RULES · container queries ════════
+   The mastheads respond to their own pane's width, not the window's, so the
+   same rules cover a phone, an iPad split, and a split dragged narrow. Goal:
+   nothing ever wraps, so the two 72px heads stay on one line. */
+.gr-pane-reader { container: reader / inline-size; }
+.gr-pane-analysis { container: analysis / inline-size; }
+
+@container reader (max-width: 560px) {
+  .gr-zoom-val,
+  .gr-brand .zh,
+  .gr-timer-phase { display: none; }
+  .gr-reader-bar { padding-right: 14px; gap: 10px; }
+}
+@container reader (max-width: 460px) {
+  /* four zoom buttons → one 放大頁面 / 整頁適寬 toggle (+ pinch on touch) */
+  .gr-zoom-step { display: none; }
+  .gr-zoom-toggle { display: inline-flex; }
+  .gr-ctrls { gap: 4px; }
+  /* the focus timer floats just under the masthead instead of crowding it */
+  .gr-timer {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 12px;
+    z-index: 6;
+    margin-left: 0;
+  }
+}
+@container reader (max-width: 400px) {
+  .gr-brand { display: none; }
+}
+
+@container analysis (max-width: 640px) {
+  .gr-tab em,
+  .gr-tool-label { display: none; }
+  /* (phone keeps its own left inset for the menu button) */
+  .gr-app:not(.is-mobile) .gr-analysis-head { padding: 0 20px; gap: 14px; }
+  .gr-head-tools { gap: 12px; }
+}
+@container analysis (max-width: 460px) {
+  /* with the header tabs visible (split view) there's no room for the swatches */
+  .gr-app:not(.is-mobile) .gr-tool-group { display: none; }
+  .gr-seg button { padding: 8px 12px; }
 }

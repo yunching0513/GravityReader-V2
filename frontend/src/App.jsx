@@ -1439,6 +1439,10 @@ function App() {
                                     <span className="en">Stop the timer</span>
                                 </button>
                             )}
+                            {/* A disabled button with no reason reads as broken. */}
+                            {!pomo.running && !flow.enabled && (
+                                <p className="gr-audio-hint" style={{ marginTop: -2, marginBottom: 10 }}>先把上方「番茄鐘」切到「開啟」,才能開始專注區塊。</p>
+                            )}
 
                             <button className="gr-side-btn" onClick={handleCleanCut} disabled={!currentFileId}>
                                 <span className="zh">乾淨切斷 · 存下次起點</span>
@@ -1648,6 +1652,7 @@ function App() {
                     highlightedText={highlightedText}
                     highlightColor={highlightColor}
                     externalFile={externalFile}
+                    docName={currentDocName}
                     initialPage={initialPage}
                     onPageChange={handlePageChange}
                     requestedPage={requestedPage}

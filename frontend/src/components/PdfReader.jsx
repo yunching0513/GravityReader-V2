@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones, Maximize2, Languages, Volume2, Lightbulb } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Minus, Plus, Upload, Headphones, Maximize2, Languages, Volume2, Lightbulb, ZoomIn, ZoomOut } from 'lucide-react';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 // Bundle the pdf.js worker with the app instead of pulling it from a CDN at
@@ -18,7 +18,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 const IS_COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
 const POP_HALF_WIDTH = 130; // keep the popup's centre this far from the screen edge
 
-const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
+const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, highlightedText, highlightColor, externalFile, docName, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -33,6 +33,14 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
     const commitTimerRef = useRef(null);
     const pageWidthRef = useRef(null); // page width in points (scale 1), for fit-to-width
     const autoFitDoneRef = useRef(false);
+    // Fit mode: until the reader zooms by hand, the page follows the pane's
+    // width — window resize, phone rotation, dragging the split. Any manual zoom
+    // (−/+, ctrl-wheel, pinch) leaves fit mode; 適合寬度 re-enters it.
+    const [fitMode, setFitMode] = useState(true);
+    const fitModeRef = useRef(true);
+    const fitScaleRef = useRef(1.0);     // the scale that fits, for the phone zoom toggle
+    const lastFitWidthRef = useRef(0);   // pane width we last fitted to (ignore jitter)
+    const enterFitMode = (on) => { fitModeRef.current = on; setFitMode(on); };
     const textIndexRef = useRef(null);   // memoised search index for the rendered text layer
     const styledRef = useRef([]);        // spans we tinted last pass (so we only clear those)
     const highlightTimerRef = useRef(null);
@@ -53,6 +61,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
     React.useEffect(() => {
         if (externalFile) {
             autoFitDoneRef.current = false;
+            enterFitMode(true);
             setFile(externalFile);
             setPageNumber(initialPage || 1);
             setSel(null);
@@ -108,10 +117,27 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
         const cs = getComputedStyle(el);
         const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2; // + page border
         const target = (el.clientWidth - pad) / pageWidthRef.current;
-        const clamped = Math.min(Math.max(target, 0.5), 3.0);
+        // Fit may go below the manual 50% floor: in a very narrow pane a page
+        // that truly fits beats one that needs sideways scrolling.
+        const clamped = Math.min(Math.max(target, 0.25), 3.0);
         pendingScaleRef.current = clamped;
+        fitScaleRef.current = clamped;
+        lastFitWidthRef.current = el.clientWidth;
         setScale(Number(clamped.toFixed(2)));
         return true;
+    };
+    const fitToWidth = () => { enterFitMode(true); fitWidth(); };
+    const zoomTo = (next) => {
+        enterFitMode(false);
+        const v = Math.min(Math.max(next, 0.25), 3.0);
+        pendingScaleRef.current = v;
+        setScale(Number(v.toFixed(2)));
+    };
+    // Phone: one button flips between "whole page" and "readable" (≈2× fit,
+    // body text around 13px), with pinch for anything in between.
+    const toggleReadableZoom = () => {
+        if (fitModeRef.current) zoomTo(fitScaleRef.current * 2);
+        else fitToWidth();
     };
 
     const onPageLoadSuccess = (page) => {
@@ -124,6 +150,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
 
     const onFileChange = (event) => {
         autoFitDoneRef.current = false;
+        enterFitMode(true);
         setFile(event.target.files[0]);
     };
 
@@ -169,11 +196,22 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
     useEffect(() => {
         const el = scrollRef.current;
         if (!el || typeof ResizeObserver === 'undefined') return undefined;
+        // Debounced with a timer, not requestAnimationFrame: rAF can be
+        // throttled (occluded or power-saving windows) and a dropped frame
+        // here meant the page silently never refitted.
+        let timer = 0;
         const ro = new ResizeObserver(() => {
-            if (!autoFitDoneRef.current && pageWidthRef.current) autoFitDoneRef.current = fitWidth();
+            clearTimeout(timer);
+            timer = setTimeout(() => {
+                if (!pageWidthRef.current) return;
+                if (!autoFitDoneRef.current) { autoFitDoneRef.current = fitWidth(); return; }
+                // Follow the pane in fit mode. The 4px dead-band keeps a vertical
+                // scrollbar appearing/disappearing from ping-ponging the scale.
+                if (fitModeRef.current && Math.abs(el.clientWidth - lastFitWidthRef.current) > 4) fitWidth();
+            }, 60);
         });
         ro.observe(el);
-        return () => ro.disconnect();
+        return () => { clearTimeout(timer); ro.disconnect(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -333,7 +371,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
             if (!(e.ctrlKey || e.metaKey)) return;
             e.preventDefault();
             const delta = e.deltaY * -0.0015;
-            const target = Math.min(Math.max(pendingScaleRef.current * (1 + delta), 0.5), 3.0);
+            const target = Math.min(Math.max(pendingScaleRef.current * (1 + delta), 0.25), 3.0);
             pendingScaleRef.current = target;
             if (docWrapRef.current) {
                 docWrapRef.current.style.transformOrigin = 'top center';
@@ -343,6 +381,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
             clearTimeout(commitTimerRef.current);
             commitTimerRef.current = setTimeout(() => {
                 if (docWrapRef.current) docWrapRef.current.style.transform = '';
+                enterFitMode(false);
                 setScale(Number(pendingScaleRef.current.toFixed(2)));
                 setZooming(false);
             }, 160);
@@ -351,6 +390,62 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
         return () => el.removeEventListener('wheel', onWheel);
     }, [scale]);
 
+    // Pinch-to-zoom on the page (touch). Same CSS-preview-then-commit approach
+    // as ctrl-wheel, anchored on the fingers' midpoint so the passage you were
+    // pinching stays under your fingers. touch-action on .gr-canvas stops the
+    // browser from zooming the whole UI instead.
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (!el) return undefined;
+        let pinch = null;
+        const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+        const onStart = (e) => {
+            if (e.touches.length !== 2 || !docWrapRef.current) return;
+            const r = el.getBoundingClientRect();
+            const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            const wr = docWrapRef.current.getBoundingClientRect();
+            pinch = { d0: dist(e.touches), base: pendingScaleRef.current, ox: mx - r.left, oy: my - r.top, k: 1 };
+            docWrapRef.current.style.transformOrigin = `${mx - wr.left}px ${my - wr.top}px`;
+            setZooming(true);
+        };
+        const onMove = (e) => {
+            if (!pinch || e.touches.length !== 2) return;
+            e.preventDefault();
+            const target = Math.min(Math.max(pinch.base * (dist(e.touches) / pinch.d0), 0.25), 3.0);
+            pinch.k = target / pinch.base;
+            pendingScaleRef.current = target;
+            docWrapRef.current.style.transform = `scale(${pinch.k})`;
+        };
+        const onEnd = (e) => {
+            if (!pinch || e.touches.length >= 2) return;
+            const { ox, oy, k } = pinch;
+            const left = el.scrollLeft, top = el.scrollTop;
+            pinch = null;
+            if (docWrapRef.current) docWrapRef.current.style.transform = '';
+            setZooming(false);
+            if (Math.abs(k - 1) < 0.02) return; // two fingers landed but didn't zoom: stay in fit mode
+            enterFitMode(false);
+            setScale(Number(pendingScaleRef.current.toFixed(2)));
+            // keep the pinched point where it was once the page re-renders
+            setTimeout(() => {
+                el.scrollLeft = (left + ox) * k - ox;
+                el.scrollTop = (top + oy) * k - oy;
+            }, 60);
+        };
+        el.addEventListener('touchstart', onStart, { passive: true });
+        el.addEventListener('touchmove', onMove, { passive: false });
+        el.addEventListener('touchend', onEnd);
+        el.addEventListener('touchcancel', onEnd);
+        return () => {
+            el.removeEventListener('touchstart', onStart);
+            el.removeEventListener('touchmove', onMove);
+            el.removeEventListener('touchend', onEnd);
+            el.removeEventListener('touchcancel', onEnd);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const submitJump = () => {
         const n = parseInt(jumpValue, 10);
         if (!Number.isNaN(n)) goTo(n);
@@ -358,17 +453,28 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
         setJumpValue('');
     };
 
+    const docTitle = (docName || (file && file.name) || '').replace(/\.pdf$/i, '');
+
     return (
         <div className="gr-reader" style={{ border: 'none', height: '100%' }} onMouseUp={handleMouseUp}>
             <div className="gr-reader-bar">
+                {/* Once a document is open, its title takes the brand's place —
+                    and, unlike the brand, it shrinks (ellipsis) instead of
+                    wrapping when the pane gets narrow. */}
                 <div className="gr-brand">
-                    <span className="mark">Yun's <b>Reader</b></span>
-                    <span className="zh">昀氏閱讀</span>
+                    {file && docTitle ? (
+                        <span className="gr-doc-title" title={docTitle}>{docTitle}</span>
+                    ) : (
+                        <>
+                            <span className="mark">Yun's <b>Reader</b></span>
+                            <span className="zh">昀氏閱讀</span>
+                        </>
+                    )}
                 </div>
 
                 {file && (
                     <div className="gr-ctrls">
-                        <button className="gr-btn gr-btn--icon" disabled={pageNumber <= 1} onClick={prevPage} title="上一頁 (←)">
+                        <button className="gr-btn gr-btn--icon" disabled={pageNumber <= 1} onClick={prevPage} title="上一頁 (←)" aria-label="上一頁">
                             <ChevronLeft size={15} />
                         </button>
                         {jumping ? (
@@ -386,20 +492,35 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
                                 <b>{String(pageNumber).padStart(2, '0')}</b> / {numPages ? String(numPages).padStart(2, '0') : '··'}
                             </button>
                         )}
-                        <button className="gr-btn gr-btn--icon" disabled={pageNumber >= numPages} onClick={nextPage} title="下一頁 (→)">
+                        <button className="gr-btn gr-btn--icon" disabled={pageNumber >= numPages} onClick={nextPage} title="下一頁 (→)" aria-label="下一頁">
                             <ChevronRight size={15} />
                         </button>
 
                         <div className="gr-zoom">
-                            <button className="gr-btn gr-btn--icon" onClick={() => setScale(s => Math.max(s - 0.1, 0.5))} title="縮小">
+                            <button className="gr-btn gr-btn--icon gr-zoom-step" onClick={() => zoomTo(pendingScaleRef.current - 0.1)} title="縮小" aria-label="縮小">
                                 <Minus size={14} />
                             </button>
                             <span className="gr-zoom-val">{Math.round(scale * 100)}%</span>
-                            <button className="gr-btn gr-btn--icon" onClick={() => setScale(s => Math.min(s + 0.1, 3.0))} title="放大">
+                            <button className="gr-btn gr-btn--icon gr-zoom-step" onClick={() => zoomTo(pendingScaleRef.current + 0.1)} title="放大" aria-label="放大">
                                 <Plus size={14} />
                             </button>
-                            <button className="gr-btn gr-btn--icon" onClick={fitWidth} title="適合寬度">
+                            <button
+                                className={`gr-btn gr-btn--icon gr-zoom-step ${fitMode ? 'is-on' : ''}`}
+                                onClick={fitToWidth}
+                                title="適合寬度"
+                                aria-label="適合寬度"
+                                aria-pressed={fitMode}
+                            >
                                 <Maximize2 size={13} />
+                            </button>
+                            {/* Narrow panes (phones, a squeezed split) get one toggle instead. */}
+                            <button
+                                className="gr-btn gr-btn--icon gr-zoom-toggle"
+                                onClick={toggleReadableZoom}
+                                title={fitMode ? '放大頁面' : '整頁適寬'}
+                                aria-label={fitMode ? '放大頁面' : '整頁適寬'}
+                            >
+                                {fitMode ? <ZoomIn size={16} /> : <ZoomOut size={16} />}
                             </button>
                         </div>
 
@@ -407,6 +528,7 @@ const PdfReader = ({ onTextSelect, onReadSelection, onExplain, onDocumentLoad, h
                             className={`gr-btn gr-btn--icon gr-read-btn ${isReading ? 'is-active' : ''}`}
                             onClick={() => onReadPage && onReadPage()}
                             title={isReading ? '停止朗讀' : '從本頁開始朗讀'}
+                            aria-label={isReading ? '停止朗讀' : '從本頁開始朗讀'}
                         >
                             <Headphones size={15} />
                         </button>
