@@ -2,16 +2,39 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense, laz
 import { AlertCircle, Menu, X, Upload, ChevronDown, ChevronLeft, ChevronRight, Plus, Check, Trash2, Volume2, Headphones, Share2, BookMarked } from 'lucide-react';
 import PdfReader from './components/PdfReader';
 import AudioBar from './components/AudioBar';
-import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote, getTranslation, putTranslation } from './utils/db';
-import { BookOpen } from 'lucide-react';
+import { saveFile, getFiles, deleteFile, updateFilePage, addNote, getNotes, deleteNote, getTranslation, putTranslation, addDump, getDumps, isSchemaStale } from './utils/db';
+import { BookOpen, Timer, FileText, Languages, StickyNote, LocateFixed } from 'lucide-react';
 import { useAudioReader } from './utils/audioReader';
 import { splitSentences, hashText } from './utils/tts';
+import { useSetting, useSettings, get as getSetting, setPath as setSettingPath, bump } from './utils/settings';
+import { usePomodoro } from './utils/usePomodoro';
+import { startSession, endSession, togglePause, skipPhase } from './utils/pomodoro';
+import FocusTimer from './components/FocusTimer';
+import * as flowAudio from './utils/flowAudio';
+import { getAsset, putAsset } from './utils/db';
 
-// The share-card renderer is a few hundred lines of canvas drawing that only
-// matters once you actually export a card — keep it out of the initial bundle.
+// Loaded on demand — the share card is canvas drawing you only reach by
+// exporting, and the two flow overlays only mount when they are needed.
 const ShareCard = lazy(() => import('./components/ShareCard'));
+const BreakLock = lazy(() => import('./components/BreakLock'));
+const BrainDump = lazy(() => import('./components/BrainDump'));
 import * as api from './utils/apiClient';
+import { useMediaQuery, MOBILE_QUERY } from './utils/useMediaQuery';
 const IS_WEB = api.isWebMode();
+
+// Turn an API failure into a message that names the real cause. The web build
+// has no backend, so "is the backend running?" was always the wrong advice
+// there — apiClient already throws readable messages for the common cases.
+function friendlyError(err, fallback) {
+    if (!IS_WEB) return '無法連上本機服務,請確認後端正在運行。';
+    const status = err && (err.status || (err.response && err.response.status));
+    if (status === 400 || status === 403) return 'Gemini 拒絕了這個金鑰,請到側欄「API 金鑰」確認是否正確。';
+    if (status === 429) return 'Gemini 用量暫時達到上限,稍等一分鐘再試。';
+    const msg = err && err.message;
+    // apiClient's own messages are user-facing Chinese; raw "Gemini 500: {…}" isn't.
+    if (msg && !/^Gemini \d{3}:/.test(msg)) return msg;
+    return fallback;
+}
 
 const DEFAULT_VOICES = [
     { id: 'Kore', label: 'Kore · 沉穩女聲' },
@@ -23,17 +46,38 @@ function App() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    // Resizable Layout State
-    const [leftWidth, setLeftWidth] = useState(50); // Percentage
+    // Resizable Layout State. Width is local while dragging — writing through
+    // the settings store on every mousemove would thrash localStorage — and is
+    // committed once on mouse-up.
+    const [leftWidth, setLeftWidth] = useState(() => getSetting('ui.leftWidth', 50));
     const [isDragging, setIsDragging] = useState(false);
+
+    // Phone layout: one pane at a time, switched by a bottom tab bar.
+    const isMobile = useMediaQuery(MOBILE_QUERY);
+    // Starts on the analysis pane: with no document open that's where the
+    // getting-started checklist lives; opening a PDF jumps to the reader.
+    const [mobilePane, setMobilePane] = useState('analysis'); // 'reader' | 'analysis'
+    const isMobileRef = useRef(isMobile);
+    isMobileRef.current = isMobile;
+    // Stable on purpose (refs + a state setter only), so memoised handlers can
+    // call it without re-creating themselves when the viewport changes.
+    // On a phone the drawer covers ~88% of the screen, so any jump to a pane
+    // closes it too.
+    const goPane = useCallback((pane) => {
+        if (!isMobileRef.current) return;
+        setMobilePane(pane);
+        setIsSidebarOpen(false);
+    }, []);
 
     // Sidebar & Features State
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [summaryResult, setSummaryResult] = useState(null);
     const [viewMode, setViewMode] = useState('analysis'); // 'analysis' | 'summary'
-    const [translationMode, setTranslationMode] = useState('sentence'); // 'sentence' | 'paragraph'
-    const [customSummaryLength, setCustomSummaryLength] = useState(500);
+    const [translationMode, setTranslationMode] = useSetting('read.translationMode');
+    const [customSummaryLength, setCustomSummaryLength] = useSetting('read.summaryLength');
     const [isSummarizing, setIsSummarizing] = useState(false);
+    const [summaryMeta, setSummaryMeta] = useState(null);        // {pages, total, truncated}
+    const [summaryProgress, setSummaryProgress] = useState(null); // {done, total} while extracting
 
     // My Library State
     const [libraryFiles, setLibraryFiles] = useState([]);
@@ -42,10 +86,10 @@ function App() {
     const [initialPage, setInitialPage] = useState(1);
     const [openSection, setOpenSection] = useState('library'); // 'library' | 'export' | 'summary'
 
-    // Reading preferences
-    const [fontMode, setFontMode] = useState('default'); // 'default' | 'zen'
+    // Reading preferences — persisted, so they survive a reload.
+    const [fontMode, setFontMode] = useSetting('ui.fontMode'); // 'default' | 'zen'
     const [highlightedText, setHighlightedText] = useState('');
-    const [highlightColor, setHighlightColor] = useState('rgba(193, 95, 60, 0.22)'); // 朱 vermilion
+    const [highlightColor, setHighlightColor] = useSetting('tts.highlightColor'); // 朱 vermilion
 
     // Notes State (per-document)
     const [activeTab, setActiveTab] = useState('reading'); // 'reading' | 'notes'
@@ -61,9 +105,9 @@ function App() {
 
     // Read-aloud (TTS) State
     const [ttsVoices, setTtsVoices] = useState(DEFAULT_VOICES);
-    const [ttsVoice, setTtsVoice] = useState('Kore');
-    const [ttsSpeed, setTtsSpeed] = useState(1.0);
-    const [playEngine, setPlayEngine] = useState('gemini'); // live read-aloud engine
+    const [ttsVoice, setTtsVoice] = useSetting('tts.voice');
+    const [ttsSpeed, setTtsSpeed] = useSetting('tts.speed');
+    const [playEngine, setPlayEngine] = useSetting('tts.engine'); // live read-aloud engine
     const [ttsActive, setTtsActive] = useState(false); // a read session is live
     const [currentPage, setCurrentPage] = useState(1);
     const [requestedPage, setRequestedPage] = useState(null); // drives the viewer
@@ -104,6 +148,146 @@ function App() {
     const [bookFrom, setBookFrom] = useState(1);
     const [bookTo, setBookTo] = useState(1);
 
+    // ── 心流 · Flow state ─────────────────────────────────────────────
+    const settings = useSettings();
+    const flow = settings.flow;
+    const pomo = usePomodoro();
+    const [dumpPrompt, setDumpPrompt] = useState(null); // {mode, docName, page, lastCut} | null
+    const [guideOn, setGuideOn] = useSetting('flow.guideEnabled', false);
+    const [metaphor, setMetaphor] = useState(null);   // {loading, result, error, text}
+    const metaphorTokenRef = useRef(0);
+    const [staleDb, setStaleDb] = useState(false);
+    // Persisted so a reload doesn't re-ask; in-memory it reset on every refresh.
+    const DUMP_AT_KEY = 'gr.lastDumpAt';
+    const lastDumpAtRef = useRef((() => {
+        try { return Number(localStorage.getItem(DUMP_AT_KEY)) || 0; } catch (_) { return 0; }
+    })());
+
+    // Another window upgraded the IndexedDB schema, so this window's connection
+    // is dead and re-opening at the old version would throw. Ask for a reload
+    // rather than failing every subsequent save in silence.
+    useEffect(() => {
+        const id = setInterval(() => { if (isSchemaStale()) setStaleDb(true); }, 2000);
+        return () => clearInterval(id);
+    }, []);
+
+    // Offer the dump when opening a document, but not every time — being asked
+    // to unload your head twice in ten minutes is itself an interruption.
+    const DUMP_COOLDOWN_MS = 30 * 60 * 1000;
+
+    const maybeOpenDump = useCallback(async (fileId, name) => {
+        // Only for readers who switched the Pomodoro on. dumpBeforeStart
+        // defaults to true while flow.enabled defaults to false, so a brand-new
+        // reader used to meet this un-dismissable prompt on their very first PDF.
+        if (!getSetting('flow.enabled') || !getSetting('flow.dumpBeforeStart')) return;
+        if (Date.now() - lastDumpAtRef.current < DUMP_COOLDOWN_MS) return;
+        let lastCut = null;
+        try {
+            const dumps = await getDumps(fileId);
+            lastCut = dumps.filter(d => d.kind === 'cut').sort((a, b) => b.createdAt - a.createdAt)[0] || null;
+        } catch (_) { /* history is a nicety, never block the prompt */ }
+        setDumpPrompt({ mode: 'open', docName: name, page: null, lastCut });
+    }, []);
+
+    const closeDump = useCallback((saved) => {
+        lastDumpAtRef.current = Date.now();
+        try { localStorage.setItem(DUMP_AT_KEY, String(lastDumpAtRef.current)); } catch (_) { /* private mode */ }
+        setDumpPrompt(null);
+        // Starting the clock is the point of the ritual — but only if the user
+        // actually has the Pomodoro on, and only if one isn't already running.
+        if (saved && getSetting('flow.enabled') && !getSetting('session')) {
+            startSession(currentFileId, getSetting('flow'));
+        }
+    }, [currentFileId]);
+
+    const handleSaveDump = useCallback(async ({ text, nextStep, kind }) => {
+        try {
+            await addDump({ fileId: currentFileId, text, nextStep, kind });
+        } catch (err) {
+            console.error('Failed to save the dump:', err);
+        }
+        closeDump(true);
+    }, [currentFileId, closeDump]);
+
+    const handleSkipDump = useCallback(() => {
+        bump(dumpPrompt?.mode === 'cut' ? 'stats.skips.cut' : 'stats.skips.dump');
+        closeDump(false);
+    }, [dumpPrompt, closeDump]);
+
+    const handleCleanCut = useCallback(() => {
+        setDumpPrompt({
+            mode: 'cut',
+            docName: currentDocName,
+            page: currentPageRef.current,
+            lastCut: null,
+        });
+    }, [currentDocName]);
+
+    const handleSkipBreak = useCallback(() => { skipPhase(getSetting('flow')); }, []);
+
+    // Lower the difficulty of a stuck passage. Same stale-guard idiom as
+    // handleTextSelect, with its own token, and the same translations store —
+    // its keys are already namespaced by mode, so "metaphor|..." just slots in.
+    const handleExplain = useCallback(async (text) => {
+        if (!text) return;
+        const token = ++metaphorTokenRef.current;
+        setActiveTab('reading');
+        goPane('analysis');
+        setMetaphor({ loading: true, text });
+
+        const cacheKey = `metaphor|${text.length}|${hashText(text)}`;
+        try {
+            const cached = await getTranslation(cacheKey).catch(() => null);
+            if (metaphorTokenRef.current !== token) return;
+            if (cached) { setMetaphor({ result: cached, text }); return; }
+
+            let result = await api.metaphor(text);
+            if (typeof result === 'string') {
+                try { result = JSON.parse(result); } catch (e) { console.error('metaphor parse failed', e); }
+            }
+            if (metaphorTokenRef.current !== token) return;
+            setMetaphor({ result, text });
+            if (result && result.metaphor_zh) putTranslation(cacheKey, result).catch(() => {});
+        } catch (err) {
+            if (metaphorTokenRef.current !== token) return;
+            console.error('Metaphor error:', err);
+            setMetaphor({ error: err.message || '降維失敗', text });
+        }
+    }, []);
+
+    const applyAmbience = useCallback(async (kind) => {
+        setSettingPath('audio.ambience', kind);
+        let blob = null;
+        if (kind === 'file') {
+            const asset = await getAsset('ambience').catch(() => null);
+            if (!asset) { alert('還沒選音檔。先按「選擇音檔」。'); setSettingPath('audio.ambience', 'off'); return; }
+            blob = asset.blob;
+        }
+        const a = getSetting('audio');
+        await flowAudio.setAmbience({ kind, volume: a.ambienceVol, pulseHz: a.pulseHz, blob });
+    }, []);
+
+    const applyBinaural = useCallback(async (mode) => {
+        setSettingPath('audio.binaural', mode);
+        const a = getSetting('audio');
+        await flowAudio.setBinaural({
+            mode, carrierHz: a.carrierHz, beatHz: a.beatHz, volume: a.binauralVol,
+        });
+    }, []);
+
+    const pickAmbienceFile = useCallback(async (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        await putAsset('ambience', f, { name: f.name });
+        setSettingPath('audio.ambienceAsset', f.name);
+        await applyAmbience('file');
+    }, [applyAmbience]);
+
+    const handleStartFocus = useCallback(() => {
+        startSession(currentFileId, getSetting('flow'));
+        setIsSidebarOpen(false);
+    }, [currentFileId]);
+
     // API Configuration
 
     // ── Read-aloud wiring ─────────────────────────────────────────────
@@ -130,6 +314,16 @@ function App() {
     // so those callbacks stay stable and the reader doesn't reconcile mid-read.
     const readerRef = useRef(reader);
     readerRef.current = reader;
+
+    // Duck the ambience under read-aloud rather than routing the speech through
+    // the audio graph. `isPlaying` stays true across the gap between clips, so
+    // the bed doesn't pump between sentences, and `isLoading` covers the first
+    // clip's latency so the duck is already in place before the voice arrives.
+    useEffect(() => {
+        if (!settings.audio.duckOnTts) { flowAudio.duck(false); return; }
+        flowAudio.duck(reader.isPlaying || reader.isLoading, settings.audio.duckRatio);
+    }, [reader.isPlaying, reader.isLoading, settings.audio.duckOnTts, settings.audio.duckRatio]);
+
 
     // Switch the live read-aloud engine (and reset to that engine's voice).
     const selectPlayEngine = (engine) => {
@@ -161,13 +355,29 @@ function App() {
         }
     };
 
-    // On first run with no key, open the key settings to prompt the user.
+    // A missing key used to throw the settings drawer open over a scrim on first
+    // run — before the visitor knew what the app was. The reading pane's
+    // getting-started checklist now carries that step instead.
     useEffect(() => {
-        refreshKeyStatus().then(has => {
-            if (has === false) { setIsSidebarOpen(true); setOpenSection('apikey'); }
-        });
+        refreshKeyStatus();
         refreshGlossary();
     }, []);
+
+    const openKeySettings = () => { setIsSidebarOpen(true); setOpenSection('apikey'); };
+
+    // Escape closes the drawer — unless a modal or the break lock is on top:
+    // modals handle their own Escape, and the break lock deliberately has none.
+    useEffect(() => {
+        if (!isSidebarOpen) return undefined;
+        const onKey = (e) => {
+            if (e.key !== 'Escape') return;
+            if (document.querySelector('.gr-modal-backdrop, .gr-share-backdrop, .gr-lock')) return;
+            setIsSidebarOpen(false);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [isSidebarOpen]);
+    const startFileRef = useRef(null); // hidden PDF input behind the "選擇 PDF" buttons
 
     const saveKey = async () => {
         const k = keyDraft.trim();
@@ -226,6 +436,7 @@ function App() {
 
     const startReadingFrom = useCallback(async (pageNo) => {
         if (!pdfDocumentRef.current) { alert('請先載入 PDF 文件。'); return; }
+        goPane('reader'); // the spoken sentence is highlighted on the page
         ttsPageRef.current = pageNo;
         setRequestedPage(pageNo);
         const segs = splitSentences(await extractPageText(pageNo));
@@ -337,18 +548,46 @@ function App() {
         api.listDigests().then(setDigestList).catch(() => {});
     }, []);
 
-    // Load Library on Mount
+    // Load the library on mount, and pick up where the reader left off: the
+    // last library document reopens at its saved page. Coming back used to mean
+    // an empty reader and the getting-started checklist asking you to open a
+    // PDF again — the session-to-session gap this app exists to close.
     useEffect(() => {
-        loadLibrary();
+        loadLibrary().then((files) => {
+            const lastId = getSetting('ui.lastFileId', null);
+            const last = lastId != null && files.find(f => f.id === lastId);
+            if (last) loadFileFromLibrary(last, { resume: true });
+        });
     }, []);
 
     const loadLibrary = async () => {
         try {
-            const files = await getFiles();
-            setLibraryFiles(files.sort((a, b) => b.timestamp - a.timestamp));
+            const files = (await getFiles()).sort((a, b) => b.timestamp - a.timestamp);
+            setLibraryFiles(files);
+            return files;
         } catch (err) {
             console.error("Failed to load library:", err);
+            return [];
         }
+    };
+
+    // Opening a different document starts the reading pane fresh. The previous
+    // document's translation, summary, explanation or digest used to stay on
+    // the right while the left showed the new paper.
+    const resetReadingPane = () => {
+        translateTokenRef.current++;   // drop answers still in flight for the old doc
+        summaryTokenRef.current++;
+        metaphorTokenRef.current++;
+        setAnalysisResult(null);
+        setSummaryResult(null);
+        setSummaryMeta(null);
+        setSummaryProgress(null);
+        setIsLoading(false);
+        setIsSummarizing(false);
+        setError(null);
+        setMetaphor(null);
+        setHighlightedText('');
+        setViewMode('analysis');
     };
 
     // Load this document's notes whenever the active file changes.
@@ -466,10 +705,15 @@ function App() {
                 const newId = await saveFile(file);
                 await loadLibrary();
                 // Also load into reader immediately
+                resetReadingPane();
                 setExternalFile(file);
+                setSettingPath('ui.lastFileId', newId);
+                setIsSidebarOpen(false);
+                goPane('reader');
                 setCurrentFileId(newId); // Assuming saveFile returns the ID, checking db.js implementation
                 setCurrentDocName(file.name);
                 setInitialPage(1);
+                maybeOpenDump(newId, file.name);
             } catch (err) {
                 console.error("Failed to save file:", err);
                 alert("Failed to save file to library.");
@@ -477,12 +721,25 @@ function App() {
         }
     };
 
-    const loadFileFromLibrary = (fileData) => {
+    // Stable identity for the memoised PDF pane (handleFileChange is re-created
+    // every render).
+    const handleFileChangeRef = useRef(null);
+    handleFileChangeRef.current = handleFileChange;
+    const openFileFromReader = useCallback((e) => handleFileChangeRef.current(e), []);
+
+    // resume: reopened automatically at startup — no drawer to close, and no
+    // "clear your head before starting" prompt for simply coming back.
+    const loadFileFromLibrary = (fileData, { resume = false } = {}) => {
         reader.stop();
+        resetReadingPane();
         setExternalFile(fileData.data);
         setCurrentFileId(fileData.id);
         setCurrentDocName(fileData.name);
         setInitialPage(fileData.lastPage || 1);
+        setSettingPath('ui.lastFileId', fileData.id);
+        setIsSidebarOpen(false);
+        goPane('reader');
+        if (!resume) maybeOpenDump(fileData.id, fileData.name);
     };
 
     // Open a Zotero paper's PDF straight into the reader (read-only).
@@ -491,11 +748,14 @@ function App() {
         try {
             reader.stop();
             const blob = await api.zoteroFile(item.attKey);
+            resetReadingPane();
             setExternalFile(blob);
             setCurrentFileId(`zotero:${item.attKey}`);
             setCurrentDocName(item.title);
             setInitialPage(1);
             setIsSidebarOpen(false);
+            goPane('reader');
+            maybeOpenDump(`zotero:${item.attKey}`, item.title);
         } catch (e) {
             alert('無法開啟此 PDF。');
         } finally {
@@ -525,6 +785,7 @@ function App() {
             setViewMode('digest');
             setActiveTab('reading');
             setIsSidebarOpen(false);
+            goPane('analysis');
         } catch (_) {}
         finally { setDigestLoading(false); }
     };
@@ -577,6 +838,8 @@ function App() {
 
         const handleMouseUp = () => {
             setIsDragging(false);
+            // Persist once, at the end of the gesture — not on every frame.
+            setSettingPath('ui.leftWidth', leftWidth);
         };
 
         if (isDragging) {
@@ -595,7 +858,7 @@ function App() {
             document.body.style.cursor = 'default';
             document.body.style.userSelect = 'auto';
         };
-    }, [isDragging]);
+    }, [isDragging, leftWidth]);
 
     // Selections can arrive faster than Gemini answers. Stamp each request and
     // drop stale replies, so the pane always shows the passage you selected last
@@ -605,6 +868,7 @@ function App() {
     const handleTextSelect = useCallback(async (text) => {
         const token = ++translateTokenRef.current;
         setActiveTab('reading');
+        goPane('analysis');
         setViewMode('analysis');
         setIsLoading(true);
         setError(null);
@@ -638,7 +902,7 @@ function App() {
         } catch (err) {
             if (translateTokenRef.current !== token) return;
             console.error("API Error:", err);
-            setError("無法分析文本，請確認後端服務正在運行。");
+            setError(friendlyError(err, '翻譯失敗,請再試一次。'));
         } finally {
             if (translateTokenRef.current === token) setIsLoading(false);
         }
@@ -651,45 +915,79 @@ function App() {
         setBookTo(pdf.numPages);
     }, []);
 
-    // Summarising only ever sends the first SUMMARY_CHAR_BUDGET characters, so
-    // stop extracting once we have them — a 400-page thesis used to decode every
-    // page's text layer before throwing 95% of it away.
-    const SUMMARY_CHAR_BUDGET = 30000;
+    // How much text a summary may send. It used to be 30 000 characters — about
+    // the first 7 pages of an ordinary 25-page paper — while the result was
+    // labelled 全文摘要. Gemini Flash takes ~1M tokens, so 400 000 characters
+    // (~100k tokens) covers a whole paper and most of a thesis; anything longer
+    // is labelled with the pages it actually covers. Extraction still stops at
+    // the budget, so a huge PDF never decodes text it won't send.
+    const SUMMARY_CHAR_BUDGET = 400000;
 
-    const extractPdfText = async (maxChars = Infinity) => {
+    // → { text, pages: pages included, total, truncated }
+    const extractPdfText = async (maxChars = Infinity, onProgress) => {
         const doc = pdfDocumentRef.current;
-        if (!doc) return '';
+        if (!doc) return { text: '', pages: 0, total: 0, truncated: false };
         const parts = [];
         let length = 0;
-        for (let i = 1; i <= doc.numPages && length < maxChars; i++) {
+        let i = 1;
+        for (; i <= doc.numPages && length < maxChars; i++) {
             const pageText = await extractPageText(i);
             parts.push(pageText);
             length += pageText.length + 1;
+            if (onProgress && (i % 5 === 0 || i === doc.numPages)) onProgress(i, doc.numPages);
         }
         const full = parts.join('\n');
-        return Number.isFinite(maxChars) ? full.slice(0, maxChars) : full;
+        const truncated = length > maxChars || i <= doc.numPages;
+        return {
+            text: Number.isFinite(maxChars) ? full.slice(0, maxChars) : full,
+            pages: parts.length,
+            total: doc.numPages,
+            truncated,
+        };
     };
+    const summaryTokenRef = useRef(0);
 
     const handleSummarize = async (length) => {
         if (!pdfDocumentRef.current) {
             alert("請先載入 PDF 文件。");
             return;
         }
+        // An empty or nonsensical custom length used to go out as
+        // "approximately NaN words" and spend a request.
+        const words = Math.round(Number(length));
+        if (!Number.isFinite(words) || words < 50 || words > 5000) {
+            setActiveTab('reading');
+            goPane('analysis');
+            setError('摘要長度請填 50 到 5000 之間的字數。');
+            return;
+        }
+        const token = ++summaryTokenRef.current;
+        setIsSidebarOpen(false); // the result appears behind the drawer otherwise
         setIsSummarizing(true);
         setActiveTab('reading');
+        goPane('analysis');
         setViewMode('summary');
         setSummaryResult(null);
+        setSummaryMeta(null);
+        setSummaryProgress(null);
         setError(null);
 
         try {
-            const text = await extractPdfText(SUMMARY_CHAR_BUDGET);
-            const summary = await api.summarize(text, length);
+            const ex = await extractPdfText(SUMMARY_CHAR_BUDGET, (done, total) => {
+                if (summaryTokenRef.current === token) setSummaryProgress({ done, total });
+            });
+            if (summaryTokenRef.current !== token) return;
+            setSummaryProgress(null);
+            const summary = await api.summarize(ex.text, words);
+            if (summaryTokenRef.current !== token) return; // another document was opened meanwhile
             setSummaryResult(summary);
+            setSummaryMeta({ pages: ex.pages, total: ex.total, truncated: ex.truncated });
         } catch (err) {
+            if (summaryTokenRef.current !== token) return;
             console.error("Summarize Error:", err);
-            setError("文件摘要生成失敗。");
+            setError(friendlyError(err, '文件摘要生成失敗,請再試一次。'));
         } finally {
-            setIsSummarizing(false);
+            if (summaryTokenRef.current === token) { setIsSummarizing(false); setSummaryProgress(null); }
         }
     };
 
@@ -725,12 +1023,15 @@ function App() {
     const isEmpty = !isBusy && !analysisResult && !summaryResult && !error && viewMode !== 'digest';
 
     return (
-        <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}`}>
+        <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}${isMobile ? ` is-mobile pane-${mobilePane}` : ''}`}>
             {/* Sidebar Toggle */}
             <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 className="gr-menu-btn"
                 title={isSidebarOpen ? '關閉側欄' : '開啟側欄'}
+                aria-label={isSidebarOpen ? '關閉側欄' : '開啟側欄'}
+                aria-expanded={isSidebarOpen}
+                aria-controls="gr-sidebar"
             >
                 {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
@@ -742,7 +1043,7 @@ function App() {
             />
 
             {/* Sidebar Drawer */}
-            <aside className={`gr-sidebar gr-scroll ${isSidebarOpen ? 'is-open' : ''}`}>
+            <aside id="gr-sidebar" aria-label="側欄" className={`gr-sidebar gr-scroll ${isSidebarOpen ? 'is-open' : ''}`}>
                 <div className="gr-side-head">
                     <div className="gr-side-mark">Yun's <span>Reader</span></div>
                     <div className="gr-side-sub">昀氏閱讀 · 雙語精讀 · II</div>
@@ -765,7 +1066,7 @@ function App() {
                                 <Upload size={18} />
                                 <span className="zh">上傳新文件</span>
                                 <span className="en">Upload PDF</span>
-                                <input type="file" onChange={handleFileChange} style={{ display: 'none' }} accept=".pdf" />
+                                <input type="file" onChange={handleFileChange} className="gr-sr-only" accept=".pdf" />
                             </label>
 
                             <div className="gr-filelist gr-scroll">
@@ -783,7 +1084,11 @@ function App() {
                                             </button>
                                             <button
                                                 className="gr-file-del"
-                                                onClick={(e) => { e.stopPropagation(); deleteFile(file.id).then(loadLibrary); }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (getSetting('ui.lastFileId', null) === file.id) setSettingPath('ui.lastFileId', null);
+                                                    deleteFile(file.id).then(loadLibrary);
+                                                }}
                                                 title="刪除"
                                             >
                                                 <X size={14} />
@@ -1078,7 +1383,7 @@ function App() {
                                         )}
                                         {bookJob.status === 'done' && (
                                             <>
-                                                <div className="gr-book-line gr-book-done">✓ 已生成 · {fmtBytes(bookJob.bytes)}</div>
+                                                <div className="gr-book-line gr-book-done">已生成 · {fmtBytes(bookJob.bytes)}</div>
                                                 {window.gr ? (
                                                     <button className="gr-side-btn" onClick={revealBook}>
                                                         <span className="zh">在 Finder 顯示</span>
@@ -1138,6 +1443,262 @@ function App() {
                     )}
                 </section>
 
+                {/* 07 心流 */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('flow')}>
+                        <span className="grp">
+                            <span className="num">07</span>
+                            <span className="zh">心流專注</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'flow' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">
+                        Flow · {flow.enabled ? `${flow.focusMin}／${flow.breakMin} 分` : '未啟用'}
+                    </div>
+
+                    {openSection === 'flow' && (
+                        <div className="gr-side-body">
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">番茄鐘 · Pomodoro</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button
+                                        className={flow.enabled ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('flow.enabled', true)}
+                                    >
+                                        開啟
+                                    </button>
+                                    <button
+                                        className={!flow.enabled ? 'is-active' : ''}
+                                        onClick={() => { setSettingPath('flow.enabled', false); endSession('disabled'); }}
+                                    >
+                                        關閉
+                                    </button>
+                                </div>
+                            </label>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">專注 · Focus</span>
+                                <div className="gr-num-field">
+                                    <input
+                                        type="number" min="5" max="90" className="gr-input"
+                                        value={flow.focusMin}
+                                        onChange={(e) => setSettingPath('flow.focusMin', parseInt(e.target.value, 10) || 25)}
+                                    />
+                                    <span>分鐘,休息</span>
+                                    <input
+                                        type="number" min="1" max="30" className="gr-input"
+                                        value={flow.breakMin}
+                                        onChange={(e) => setSettingPath('flow.breakMin', parseInt(e.target.value, 10) || 5)}
+                                    />
+                                    <span>分鐘</span>
+                                </div>
+                            </label>
+                            <p className="gr-audio-hint">
+                                25／5 是常見起點,不是定律。用幾週後照你自己的疲勞曲線調。
+                            </p>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">開始前先卸載思緒</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button
+                                        className={flow.dumpBeforeStart ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('flow.dumpBeforeStart', true)}
+                                    >
+                                        要
+                                    </button>
+                                    <button
+                                        className={!flow.dumpBeforeStart ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('flow.dumpBeforeStart', false)}
+                                    >
+                                        不用
+                                    </button>
+                                </div>
+                            </label>
+
+                            {!pomo.running ? (
+                                <button className="gr-side-btn" onClick={handleStartFocus} disabled={!flow.enabled}>
+                                    <span className="zh">
+                                        <Timer size={12} style={{ verticalAlign: '-1px', marginRight: 6 }} />
+                                        開始一個專注區塊
+                                    </span>
+                                    <span className="en">Start focus · {flow.focusMin} min</span>
+                                </button>
+                            ) : (
+                                <button className="gr-side-btn" onClick={() => endSession('stopped')}>
+                                    <span className="zh">結束這次專注</span>
+                                    <span className="en">Stop the timer</span>
+                                </button>
+                            )}
+                            {/* A disabled button with no reason reads as broken. */}
+                            {!pomo.running && !flow.enabled && (
+                                <p className="gr-audio-hint" style={{ marginTop: -2, marginBottom: 10 }}>先把上方「番茄鐘」切到「開啟」,才能開始專注區塊。</p>
+                            )}
+
+                            <button className="gr-side-btn" onClick={handleCleanCut} disabled={!currentFileId}>
+                                <span className="zh">乾淨切斷 · 存下次起點</span>
+                                <span className="en">Clean cut · save where to resume</span>
+                            </button>
+
+                            <div className="gr-flow-stats">
+                                <div className="gr-flow-stat">
+                                    <span>完成的專注</span><b>{settings.stats.focusCompleted}</b>
+                                </div>
+                                <div className="gr-flow-stat">
+                                    <span>略過休息</span><b>{settings.stats.skips.break}</b>
+                                </div>
+                                <div className="gr-flow-stat">
+                                    <span>略過卸載</span><b>{settings.stats.skips.dump + settings.stats.skips.cut}</b>
+                                </div>
+                            </div>
+                            <p className="gr-audio-hint">
+                                通知無法從 App 內關閉 —— 那是作業系統的權限。專注前請自己開 macOS 專注模式。
+                            </p>
+
+                            <div className="gr-book">
+                                <div className="gr-book-head">閱讀導引 · Pace guide</div>
+
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">導引光標</span>
+                                    <div className="gr-seg gr-seg--full">
+                                        <button className={guideOn ? 'is-active' : ''} onClick={() => setGuideOn(true)}>開啟</button>
+                                        <button className={!guideOn ? 'is-active' : ''} onClick={() => setGuideOn(false)}>關閉</button>
+                                    </div>
+                                </label>
+
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">樣式</span>
+                                    <div className="gr-seg gr-seg--full">
+                                        <button className={flow.guideMode === 'line' ? 'is-active' : ''}
+                                            onClick={() => setSettingPath('flow.guideMode', 'line')}>整行</button>
+                                        <button className={flow.guideMode === 'word' ? 'is-active' : ''}
+                                            onClick={() => setSettingPath('flow.guideMode', 'word')}>逐字</button>
+                                    </div>
+                                </label>
+
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">基線速度 · WPM</span>
+                                    <div className="gr-num-field">
+                                        <input type="number" min="60" max="900" className="gr-input"
+                                            value={flow.wpm}
+                                            onChange={(e) => setSettingPath('flow.wpm', parseInt(e.target.value, 10) || 250)} />
+                                        <span>字/分</span>
+                                    </div>
+                                </label>
+
+                                <label className="gr-audio-field">
+                                    <span className="gr-audio-field-label">
+                                        挑戰倍率 · {Math.round(flow.challenge * 100)}%
+                                        {'\u2003'}≈ {Math.round(flow.wpm * flow.challenge)} wpm
+                                    </span>
+                                    <input type="range" className="gr-range" min="100" max="120" step="1"
+                                        value={Math.round(flow.challenge * 100)}
+                                        onChange={(e) => setSettingPath('flow.challenge', parseInt(e.target.value, 10) / 100)} />
+                                </label>
+                                <p className="gr-audio-hint">
+                                    「比你的速度快 4%」出自心流的通俗論述,不是實驗常數。這條滑桿就是讓你自己找那個數字。
+                                </p>
+                                <p className="gr-audio-hint">朗讀進行時光標會自動停,兩者會互相打架。</p>
+                            </div>
+                        </div>
+                    )}
+                </section>
+
+                {/* 08 音場 */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('sound')}>
+                        <span className="grp">
+                            <span className="num">08</span>
+                            <span className="zh">音場</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'sound' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">
+                        Soundfield · {settings.audio.ambience === 'off' && settings.audio.binaural === 'off' ? '靜音' : '播放中'}
+                    </div>
+
+                    {openSection === 'sound' && (
+                        <div className="gr-side-body">
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">環境音 · Ambience</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button className={settings.audio.ambience === 'off' ? 'is-active' : ''} onClick={() => applyAmbience('off')}>關</button>
+                                    <button className={settings.audio.ambience === 'pink' ? 'is-active' : ''} onClick={() => applyAmbience('pink')}>粉紅</button>
+                                    <button className={settings.audio.ambience === 'brown' ? 'is-active' : ''} onClick={() => applyAmbience('brown')}>棕色</button>
+                                    <button className={settings.audio.ambience === 'file' ? 'is-active' : ''} onClick={() => applyAmbience('file')}>音檔</button>
+                                </div>
+                            </label>
+
+                            <label className="gr-upload gr-upload--slim">
+                                <Upload size={14} />
+                                <span className="zh">{settings.audio.ambienceAsset || '選擇音檔'}</span>
+                                <span className="en">your own track · loops</span>
+                                <input type="file" accept="audio/*" onChange={pickAmbienceFile} className="gr-sr-only" />
+                            </label>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">環境音量 · {Math.round(settings.audio.ambienceVol * 100)}%</span>
+                                <input type="range" className="gr-range" min="0" max="100"
+                                    value={Math.round(settings.audio.ambienceVol * 100)}
+                                    onChange={(e) => {
+                                        const v = parseInt(e.target.value, 10) / 100;
+                                        setSettingPath('audio.ambienceVol', v);
+                                        flowAudio.setAmbienceVolume(v);
+                                    }} />
+                            </label>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">
+                                    脈動 · {settings.audio.pulseHz > 0 ? `${settings.audio.pulseHz} Hz` : '無'}
+                                </span>
+                                <input type="range" className="gr-range" min="0" max="20"
+                                    value={settings.audio.pulseHz}
+                                    onChange={(e) => setSettingPath('audio.pulseHz', parseInt(e.target.value, 10))}
+                                    onMouseUp={() => applyAmbience(settings.audio.ambience)} />
+                            </label>
+
+                            <div className="gr-book">
+                                <div className="gr-book-head">雙耳節拍 · Binaural</div>
+                                <div className="gr-seg gr-seg--full">
+                                    <button className={settings.audio.binaural === 'off' ? 'is-active' : ''} onClick={() => applyBinaural('off')}>關</button>
+                                    <button className={settings.audio.binaural === 'theta' ? 'is-active' : ''} onClick={() => applyBinaural('theta')}>Theta 6Hz</button>
+                                    <button className={settings.audio.binaural === 'alpha' ? 'is-active' : ''} onClick={() => applyBinaural('alpha')}>Alpha 10Hz</button>
+                                </div>
+
+                                <label className="gr-audio-field" style={{ marginTop: 14 }}>
+                                    <span className="gr-audio-field-label">音量 · {Math.round(settings.audio.binauralVol * 100)}%</span>
+                                    <input type="range" className="gr-range" min="0" max="25"
+                                        value={Math.round(settings.audio.binauralVol * 100)}
+                                        onChange={(e) => {
+                                            const v = parseInt(e.target.value, 10) / 100;
+                                            setSettingPath('audio.binauralVol', v);
+                                            flowAudio.setBinauralVolume(v);
+                                        }} />
+                                </label>
+
+                                <p className="gr-audio-hint">
+                                    左右耳播放相差 6Hz(或 10Hz)的純音。<b>必須戴耳機</b>,喇叭聽不到拍頻。
+                                    這是它實際做的事;至於能不能提升專注,研究結果偏弱且不一致。
+                                </p>
+                            </div>
+
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">朗讀時自動壓低</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button className={settings.audio.duckOnTts ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('audio.duckOnTts', true)}>要</button>
+                                    <button className={!settings.audio.duckOnTts ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('audio.duckOnTts', false)}>不用</button>
+                                </div>
+                            </label>
+
+                            <button className="gr-side-btn" onClick={() => { flowAudio.stopAll(); setSettingPath('audio.ambience', 'off'); setSettingPath('audio.binaural', 'off'); }}>
+                                <span className="zh">全部靜音</span>
+                                <span className="en">Stop all sound</span>
+                            </button>
+                        </div>
+                    )}
+                </section>
+
                 {/* 06 每日摘要 */}
                 <section className="gr-side-sec">
                     <button className="gr-side-toggle" onClick={() => toggleSection('digest')}>
@@ -1172,20 +1733,40 @@ function App() {
             </aside>
 
             {/* Left Panel — PDF Reader */}
-            <div className="gr-reader" style={{ width: `${leftWidth}%`, minWidth: '20%' }}>
+            <div className="gr-reader gr-pane-reader" style={isMobile ? undefined : { width: `${leftWidth}%`, minWidth: '20%' }}>
                 <PdfReader
                     onTextSelect={handleTextSelect}
                     onReadSelection={handleReadSelection}
+                    onExplain={handleExplain}
                     onDocumentLoad={handleDocumentLoad}
                     highlightedText={highlightedText}
                     highlightColor={highlightColor}
                     externalFile={externalFile}
+                    docName={currentDocName}
+                    onOpenFile={openFileFromReader}
                     initialPage={initialPage}
                     onPageChange={handlePageChange}
                     requestedPage={requestedPage}
                     onReadPage={handleReadPage}
                     autoScroll={ttsActive}
                     isReading={ttsActive}
+                    guide={{
+                        enabled: guideOn,
+                        wpm: flow.wpm,
+                        challenge: flow.challenge,
+                        mode: flow.guideMode,
+                    }}
+                    toolbarExtra={pomo.running ? (
+                        <FocusTimer
+                            remaining={pomo.remaining}
+                            progress={pomo.progress}
+                            phase={pomo.session.phase}
+                            cycle={pomo.session.cycle}
+                            paused={pomo.paused}
+                            onToggle={togglePause}
+                            onStop={() => endSession('stopped')}
+                        />
+                    ) : null}
                 />
                 {ttsActive && (
                     <AudioBar
@@ -1204,73 +1785,65 @@ function App() {
                 )}
             </div>
 
-            {/* Resizer */}
-            <div
-                className={`gr-resizer ${isDragging ? 'is-dragging' : ''}`}
-                onMouseDown={() => setIsDragging(true)}
-            />
+            {/* Resizer — split view only */}
+            {!isMobile && (
+                <div
+                    className={`gr-resizer ${isDragging ? 'is-dragging' : ''}`}
+                    onMouseDown={() => setIsDragging(true)}
+                />
+            )}
 
             {/* Right Panel — Analysis / Summary */}
-            <div className="gr-analysis" style={{ width: `${100 - leftWidth}%` }}>
+            <div className="gr-analysis gr-pane-analysis" style={isMobile ? undefined : { width: `${100 - leftWidth}%` }}>
                 {/* Header */}
                 <div className="gr-analysis-head">
-                    <div className="gr-head-main">
-                        <div className="gr-tabs">
-                            <button
-                                className={`gr-tab ${activeTab === 'reading' ? 'is-active' : ''}`}
-                                onClick={() => setActiveTab('reading')}
-                            >
-                                精讀<em>Reading</em>
-                            </button>
-                            <button
-                                className={`gr-tab ${activeTab === 'notes' ? 'is-active' : ''}`}
-                                onClick={() => setActiveTab('notes')}
-                            >
-                                筆記<em>Notes</em>
-                                {notes.length > 0 && <span className="gr-tab-count">{notes.length}</span>}
-                            </button>
-                        </div>
-                        <div className="gr-head-title">
-                            {activeTab === 'notes'
-                                ? '我的筆記'
-                                : viewMode === 'summary' ? '全文摘要'
-                                : viewMode === 'digest' ? '每日摘要'
-                                : '對譯精讀'}
-                        </div>
-                        <div className="gr-head-sub">
-                            {activeTab === 'notes'
-                                ? (currentDocName ? `《${currentDocName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
-                                : viewMode === 'summary' ? '由 AI 生成的全文摘要。'
-                                : viewMode === 'digest' ? (activeDigest ? `${activeDigest.date} · PhD Research Digest` : '請從側欄選擇摘要')
-                                : '於左側 PDF 中選取文字以進行對譯。'}
-                        </div>
+                    <div className="gr-tabs">
+                        <button
+                            className={`gr-tab ${activeTab === 'reading' ? 'is-active' : ''}`}
+                            onClick={() => setActiveTab('reading')}
+                        >
+                            精讀<em>Reading</em>
+                        </button>
+                        <button
+                            className={`gr-tab ${activeTab === 'notes' ? 'is-active' : ''}`}
+                            onClick={() => setActiveTab('notes')}
+                        >
+                            筆記<em>Notes</em>
+                            {notes.length > 0 && <span className="gr-tab-count">{notes.length}</span>}
+                        </button>
                     </div>
 
                     <div className="gr-head-tools">
                         {/* Highlight color — reading only */}
                         {activeTab === 'reading' && (
-                            <div className="gr-tool-group">
-                                <span className="gr-tool-label">標</span>
+                            <div className="gr-tool-group" role="group" aria-label="標示顏色">
+                                <span className="gr-tool-label">標示</span>
                                 <button
-                                    className={`gr-swatch ${highlightColor.includes('95, 60') ? 'is-active' : ''}`}
-                                    style={{ background: 'rgba(193, 95, 60, 0.45)' }}
-                                    onClick={() => setHighlightColor('rgba(193, 95, 60, 0.22)')}
-                                    title="朱 · Vermilion"
+                                    className={`gr-swatch ${highlightColor.includes('227') ? 'is-active' : ''}`}
+                                    style={{ background: 'rgba(227, 6, 19, 0.5)' }}
+                                    onClick={() => setHighlightColor('rgba(227, 6, 19, 0.20)')}
+                                    aria-pressed={highlightColor.includes('227')}
+                                    aria-label="紅色標示"
+                                    title="紅 · Red"
                                 />
                                 <button
-                                    className={`gr-swatch ${highlightColor.includes('124, 115') ? 'is-active' : ''}`}
-                                    style={{ background: 'rgba(128, 124, 115, 0.45)' }}
-                                    onClick={() => setHighlightColor('rgba(128, 124, 115, 0.28)')}
-                                    title="鋼灰 · Steel"
+                                    className={`gr-swatch ${highlightColor.includes('204') ? 'is-active' : ''}`}
+                                    style={{ background: 'rgba(255, 204, 0, 0.7)' }}
+                                    onClick={() => setHighlightColor('rgba(255, 204, 0, 0.40)')}
+                                    aria-pressed={highlightColor.includes('204')}
+                                    aria-label="黃色標示"
+                                    title="黃 · Yellow"
                                 />
                             </div>
                         )}
 
-                        {/* Font toggle */}
+                        {/* Reading size toggle */}
                         <button
-                            className={`gr-btn ${fontMode === 'zen' ? 'gr-btn--solid' : ''}`}
+                            className={`gr-btn gr-btn--case ${fontMode === 'zen' ? 'gr-btn--solid' : ''}`}
                             onClick={() => setFontMode(fontMode === 'default' ? 'zen' : 'default')}
-                            title="切換 Zen Maru Gothic 字體"
+                            aria-pressed={fontMode === 'zen'}
+                            aria-label="放大閱讀字級"
+                            title={fontMode === 'zen' ? '還原字級 · Reset reading size' : '放大閱讀字級 · Larger reading text'}
                         >
                             Aa
                         </button>
@@ -1281,12 +1854,14 @@ function App() {
                                 <button
                                     className={translationMode === 'sentence' ? 'is-active' : ''}
                                     onClick={() => setTranslationMode('sentence')}
+                                    aria-pressed={translationMode === 'sentence'}
                                 >
                                     逐句
                                 </button>
                                 <button
                                     className={translationMode === 'paragraph' ? 'is-active' : ''}
                                     onClick={() => setTranslationMode('paragraph')}
+                                    aria-pressed={translationMode === 'paragraph'}
                                 >
                                     逐段
                                 </button>
@@ -1297,13 +1872,35 @@ function App() {
 
                 {/* Body */}
                 <div className="gr-analysis-body gr-scroll">
-                    {hasKey === false && (
+                    <div className="gr-body-head">
+                        <div className="gr-head-title">
+                            {activeTab === 'notes'
+                                ? '我的筆記'
+                                : viewMode === 'summary' ? (summaryMeta && summaryMeta.truncated ? '摘要(部分)' : '全文摘要')
+                                : viewMode === 'digest' ? '每日摘要'
+                                : '對譯精讀'}
+                        </div>
+                        <div className="gr-head-sub">
+                            {activeTab === 'notes'
+                                ? (currentDocName ? `《${currentDocName}》 · ${notes.length} 則筆記` : '開啟文件以開始筆記')
+                                : viewMode === 'summary' ? (
+                                    !summaryMeta ? '由 AI 生成的摘要。'
+                                    : summaryMeta.truncated
+                                        ? `由 AI 生成 · 只涵蓋第 1–${summaryMeta.pages} 頁(共 ${summaryMeta.total} 頁,其餘超過長度上限)。`
+                                        : `由 AI 生成 · 涵蓋全文 ${summaryMeta.total} 頁。`)
+                                : viewMode === 'digest' ? (activeDigest ? `${activeDigest.date} · PhD Research Digest` : '請從側欄選擇摘要')
+                                : isMobile ? '在「原文」頁長按選取文字,即可對譯。' : '於左側 PDF 中選取文字以進行對譯。'}
+                        </div>
+                    </div>
+
+                    {/* The getting-started checklist already carries this step. */}
+                    {hasKey === false && !(activeTab === 'reading' && isEmpty) && (
                         <div className="gr-key-banner">
                             <div>
                                 <div className="gr-key-banner-zh">尚未設定 Gemini API 金鑰</div>
                                 <div className="gr-key-banner-en">翻譯、朗讀與摘要需要你自己的金鑰(免費)。</div>
                             </div>
-                            <button className="gr-btn gr-btn--accent" onClick={() => { setIsSidebarOpen(true); setOpenSection('apikey'); }}>
+                            <button className="gr-btn gr-btn--accent" onClick={openKeySettings}>
                                 前往設定
                             </button>
                         </div>
@@ -1315,7 +1912,51 @@ function App() {
                                 <div className="gr-loading">
                                     <div className="en">{isSummarizing ? 'Synthesizing synopsis' : 'Reading the passage'}</div>
                                     <div className="gr-bar" />
-                                    <div className="zh">{isSummarizing ? '正在凝練摘要' : '正在對譯文本'}</div>
+                                    <div className="zh">
+                                        {isSummarizing
+                                            ? (summaryProgress ? `擷取文字 ${summaryProgress.done} / ${summaryProgress.total} 頁` : '正在凝練摘要')
+                                            : '正在對譯文本'}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Concept metaphor */}
+                            {metaphor && (
+                                <div className="gr-meta">
+                                    <div className="gr-meta-head">
+                                        <span className="gr-meta-kicker">降維 · Metaphor</span>
+                                        <button className="gr-meta-x" onClick={() => setMetaphor(null)} title="關閉">
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                    <p className="gr-meta-src">{metaphor.text}</p>
+                                    {metaphor.loading && <div className="gr-meta-wait">正在找一個日常的說法⋯⋯</div>}
+                                    {metaphor.error && <div className="gr-meta-err">{metaphor.error}</div>}
+                                    {metaphor.result && (
+                                        <>
+                                            <p className="gr-meta-main">{metaphor.result.metaphor_zh}</p>
+                                            {metaphor.result.plain_zh && (
+                                                <p className="gr-meta-plain">{metaphor.result.plain_zh}</p>
+                                            )}
+                                            {Array.isArray(metaphor.result.mapping) && metaphor.result.mapping.length > 0 && (
+                                                <div className="gr-meta-map">
+                                                    {metaphor.result.mapping.map((m, i) => (
+                                                        <div key={i} className="gr-meta-row">
+                                                            <span className="f">{m.from}</span>
+                                                            <span className="a">→</span>
+                                                            <span className="t">{m.to}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {metaphor.result.caution_zh && (
+                                                <div className="gr-meta-caution">
+                                                    <span className="lbl">這個比喻在哪裡會失效</span>
+                                                    {metaphor.result.caution_zh}
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
                             )}
 
@@ -1345,10 +1986,22 @@ function App() {
                                             >
                                                 <span className="gr-entry-n">{String(index + 1).padStart(2, '0')}</span>
                                                 <div className="gr-entry-tools">
+                                                    {/* Phone only: the PDF isn't on screen, so jump to it. */}
+                                                    {isMobile && (
+                                                        <button
+                                                            className="gr-entry-tool"
+                                                            onClick={(e) => { e.stopPropagation(); setHighlightedText(item.en); setMobilePane('reader'); }}
+                                                            title="在原文中定位"
+                                                            aria-label="在原文中定位"
+                                                        >
+                                                            <LocateFixed size={14} />
+                                                        </button>
+                                                    )}
                                                     <button
                                                         className="gr-entry-tool"
                                                         onClick={(e) => { e.stopPropagation(); handleReadEntry(item.en); }}
                                                         title="朗讀這段"
+                                                        aria-label="朗讀這段"
                                                     >
                                                         <Volume2 size={14} />
                                                     </button>
@@ -1412,7 +2065,7 @@ function App() {
                                                     <div className="gr-digest-opp-head">
                                                         <span className="gr-digest-opp-name">{item.title}</span>
                                                         <span className={`gr-digest-badge gr-digest-badge--${item.status}`}>
-                                                            {item.status === 'open' ? '✅ 開放' : item.status === 'rolling' ? '♻ 滾動' : item.status === 'upcoming' ? '⏳ 即將' : '⚠ 截止'}
+                                                            {item.status === 'open' ? '開放' : item.status === 'rolling' ? '滾動' : item.status === 'upcoming' ? '即將' : '截止'}
                                                         </span>
                                                     </div>
                                                     <div className="gr-digest-opp-meta">
@@ -1445,26 +2098,78 @@ function App() {
                                 </div>
                             )}
 
-                            {/* Empty */}
-                            {isEmpty && (
-                                <div className="gr-empty" style={{ minHeight: '60vh' }}>
-                                    <div className="glyph">間</div>
-                                    <div className="en">Awaiting the text</div>
-                                    <div className="zh">靜待文本</div>
-                                    <div className="hint">select text in the pdf</div>
-                                </div>
-                            )}
+                            {/* Empty → getting-started checklist that tracks real progress */}
+                            {isEmpty && (() => {
+                                const steps = [
+                                    {
+                                        id: 'key',
+                                        zh: '設定 Gemini API 金鑰',
+                                        en: 'Add your Gemini key',
+                                        note: IS_WEB
+                                            ? '免費取得。金鑰只存在這個瀏覽器,直接送往 Google,不經其他伺服器。'
+                                            : '免費取得。金鑰只存在這台電腦。',
+                                        done: hasKey === true,
+                                        action: <button className="gr-btn gr-btn--accent" onClick={openKeySettings}>設定金鑰 →</button>,
+                                    },
+                                    {
+                                        id: 'doc',
+                                        zh: '開啟一份 PDF',
+                                        en: 'Open a document',
+                                        note: '或從側欄「我的書庫」開啟上次讀的文件,會接續在同一頁。',
+                                        // pdfNumPages is set by every load path (library, Zotero,
+                                        // and the reader pane's own file picker); externalFile isn't.
+                                        done: pdfNumPages > 0,
+                                        action: <button className="gr-btn" onClick={() => startFileRef.current && startFileRef.current.click()}>選擇 PDF →</button>,
+                                    },
+                                    {
+                                        id: 'select',
+                                        zh: isMobile ? '在「原文」頁選取一段文字' : '在左側選取一段文字',
+                                        en: 'Select a passage',
+                                        note: isMobile
+                                            ? '長按文字並拖曳選取範圍,點「翻譯」後會跳到這一頁;每一句都能朗讀、存成筆記,或回原文定位。'
+                                            : '選取後點「翻譯」,逐句對照會出現在這裡;每一句都能朗讀、存成筆記。',
+                                        done: false,
+                                        action: null,
+                                    },
+                                ];
+                                const current = steps.findIndex(s => !s.done);
+                                return (
+                                    <section className="gr-start" aria-labelledby="gr-start-title">
+                                        <div className="gr-start-kicker" id="gr-start-title">Getting started · 開始使用</div>
+                                        <ol className="gr-start-list">
+                                            {steps.map((s, i) => (
+                                                <li
+                                                    key={s.id}
+                                                    className={`gr-start-step${s.done ? ' is-done' : ''}${i === current ? ' is-current' : ''}`}
+                                                    aria-current={i === current ? 'step' : undefined}
+                                                >
+                                                    <span className="gr-start-n">{String(i + 1).padStart(2, '0')}</span>
+                                                    <div className="gr-start-body">
+                                                        <div className="gr-start-zh">{s.zh}</div>
+                                                        <div className="gr-start-en">{s.en}</div>
+                                                        {!s.done && <p className="gr-start-note">{s.note}</p>}
+                                                    </div>
+                                                    <div className="gr-start-act">
+                                                        {s.done ? <span className="gr-start-done">完成 · Done</span> : s.action}
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ol>
+                                        <input ref={startFileRef} type="file" accept=".pdf" hidden onChange={handleFileChange} />
+                                    </section>
+                                );
+                            })()}
                         </>
                     )}
 
                     {/* Notes */}
                     {activeTab === 'notes' && (
                         !currentFileId ? (
-                            <div className="gr-empty" style={{ minHeight: '60vh' }}>
-                                <div className="glyph">錄</div>
+                            <div className="gr-empty gr-empty--inline">
                                 <div className="en">No document open</div>
-                                <div className="zh">開啟文件以開始筆記</div>
-                                <div className="hint">open a pdf from the library</div>
+                                <div className="zh">筆記跟著文件走 —— 先開啟一份 PDF。</div>
+                                <button className="gr-btn" onClick={() => startFileRef.current && startFileRef.current.click()}>選擇 PDF →</button>
+                                <input ref={startFileRef} type="file" accept=".pdf" hidden onChange={handleFileChange} />
                             </div>
                         ) : (
                             <div className="gr-notes">
@@ -1536,10 +2241,78 @@ function App() {
                 </div>
             </div>
 
+            {/* Phone: bottom tab bar — one pane at a time */}
+            {isMobile && (
+                <nav className="gr-mobnav" aria-label="切換畫面">
+                    {[
+                        { id: 'reader', zh: '原文', en: 'PDF', Icon: FileText,
+                          active: mobilePane === 'reader',
+                          go: () => setMobilePane('reader') },
+                        { id: 'reading', zh: '精讀', en: 'Reading', Icon: Languages,
+                          active: mobilePane === 'analysis' && activeTab === 'reading',
+                          busy: isBusy,
+                          go: () => { setMobilePane('analysis'); setActiveTab('reading'); } },
+                        { id: 'notes', zh: '筆記', en: 'Notes', Icon: StickyNote,
+                          active: mobilePane === 'analysis' && activeTab === 'notes',
+                          count: notes.length,
+                          go: () => { setMobilePane('analysis'); setActiveTab('notes'); } },
+                    ].map(({ id, zh, en, Icon, active, busy, count, go }) => (
+                        <button
+                            key={id}
+                            className={`gr-mobnav-btn${active ? ' is-active' : ''}`}
+                            onClick={go}
+                            aria-current={active ? 'page' : undefined}
+                        >
+                            <Icon size={20} aria-hidden="true" />
+                            <span className="zh">{zh}</span>
+                            <span className="en">{en}</span>
+                            {count > 0 && <span className="gr-mobnav-count">{count}</span>}
+                            {busy && !active && <span className="gr-mobnav-busy" aria-label="處理中" />}
+                        </button>
+                    ))}
+                </nav>
+            )}
+
             {shareNote && (
                 <Suspense fallback={null}>
                     <ShareCard note={shareNote} docName={currentDocName} onClose={() => setShareNote(null)} />
                 </Suspense>
+            )}
+
+            {dumpPrompt && (
+                <Suspense fallback={null}>
+                    <BrainDump
+                        mode={dumpPrompt.mode}
+                        docName={dumpPrompt.docName}
+                        page={dumpPrompt.page}
+                        lastCut={dumpPrompt.lastCut}
+                        seconds={dumpPrompt.mode === 'cut' ? 30 : 60}
+                        holdMs={flow.holdMs}
+                        skipCount={dumpPrompt.mode === 'cut' ? settings.stats.skips.cut : settings.stats.skips.dump}
+                        onSave={handleSaveDump}
+                        onSkip={handleSkipDump}
+                    />
+                </Suspense>
+            )}
+
+            {pomo.onBreak && (
+                <Suspense fallback={null}>
+                    <BreakLock
+                        remaining={pomo.remaining}
+                        progress={pomo.progress}
+                        isLong={pomo.session.phase === 'longBreak'}
+                        cycle={pomo.session.cycle}
+                        skipCount={settings.stats.skips.break}
+                        holdMs={flow.holdMs}
+                        onSkip={handleSkipBreak}
+                    />
+                </Suspense>
+            )}
+
+            {staleDb && (
+                <div className="gr-stale">
+                    資料庫已由另一個視窗更新 —— 請重新載入這個視窗(⌘R)。
+                </div>
             )}
         </div>
     );

@@ -150,6 +150,66 @@ ${text}`;
     return out.trim();
 }
 
+// Lower the difficulty of a passage without lowering its content. `caution_zh`
+// (where the metaphor breaks) is required on purpose — a metaphor you can't see
+// the edges of is a mnemonic, not a thinking tool.
+const METAPHOR_SCHEMA = {
+    type: 'OBJECT',
+    properties: {
+        metaphor_zh: { type: 'STRING' },
+        plain_zh: { type: 'STRING' },
+        mapping: {
+            type: 'ARRAY',
+            items: {
+                type: 'OBJECT',
+                properties: { from: { type: 'STRING' }, to: { type: 'STRING' } },
+                required: ['from', 'to'],
+            },
+        },
+        caution_zh: { type: 'STRING' },
+    },
+    required: ['metaphor_zh', 'plain_zh', 'caution_zh'],
+};
+
+// Returns the JSON string, matching translate()'s shape.
+export async function metaphor(text, persona = '') {
+    if (!NO_BACKEND) {
+        const r = await axios.post(`${BACKEND_BASE}/api/metaphor`, { text, persona });
+        return r.data;
+    }
+    const key = getStoredKey();
+    if (!key) throw Object.assign(new Error('尚未設定 Gemini API 金鑰,請到設定填入。'), { status: 503 });
+
+    const lens = (persona || '').trim();
+    const personaLine = lens
+        ? `Read the passage as ${lens} would, and let that shape the metaphor.\n`
+        : '';
+    const prompt = `You are helping a researcher who is stuck on a difficult passage.
+Lower the difficulty without lowering the content.
+
+${personaLine}Reply in Traditional Chinese (Taiwan) with these fields:
+metaphor_zh: an everyday metaphor for the core idea. Concrete, from ordinary life.
+plain_zh: the same idea restated plainly, no jargon.
+mapping: which part of the metaphor stands for which part of the idea.
+caution_zh: where this metaphor breaks down and would mislead if pushed further.
+
+Passage:
+${text}`;
+
+    const json = await callGemini(GEMINI_MODEL, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+            responseMimeType: 'application/json',
+            responseSchema: METAPHOR_SCHEMA,
+        },
+    }, key);
+    let out = extractText(json).trim();
+    if (out.startsWith('```json')) out = out.slice(7);
+    else if (out.startsWith('```')) out = out.slice(3);
+    if (out.endsWith('```')) out = out.slice(0, -3);
+    return out.trim();
+}
+
 export async function summarize(text, length) {
     if (!NO_BACKEND) {
         const r = await axios.post(`${BACKEND_BASE}/api/summarize`, { text, length });
