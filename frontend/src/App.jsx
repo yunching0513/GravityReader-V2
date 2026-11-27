@@ -8,10 +8,11 @@ import { useAudioReader } from './utils/audioReader';
 import { splitSentences, hashText } from './utils/tts';
 import { useSetting, useSettings, get as getSetting, setPath as setSettingPath, bump } from './utils/settings';
 import { usePomodoro } from './utils/usePomodoro';
-import { startSession, endSession, togglePause, skipPhase } from './utils/pomodoro';
+import { startSession, endSession, togglePause, skipPhase, awaitingStart } from './utils/pomodoro';
 import FocusTimer from './components/FocusTimer';
 import * as flowAudio from './utils/flowAudio';
-import { getAsset, putAsset, patchNote } from './utils/db';
+import { getAsset, putAsset, patchNote, deleteDump, updateFileMeta } from './utils/db';
+import ThoughtInbox from './components/ThoughtInbox';
 import { renderNote, noteFilename, newGrId, sourceTitle, linkTarget } from './utils/noteMarkdown';
 
 // Loaded on demand — the share card is canvas drawing you only reach by
@@ -37,6 +38,16 @@ function App() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
 
+    // A short message along the bottom edge instead of the browser's showToast():
+    // it doesn't steal focus, doesn't stop the page, and goes away by itself.
+    const [toast, setToast] = useState(null); // {msg, kind, id}
+    const toastTimerRef = useRef(null);
+    const showToast = useCallback((msg, kind = 'info', ms = 4500) => {
+        clearTimeout(toastTimerRef.current);
+        setToast({ msg, kind, id: Date.now() });
+        toastTimerRef.current = setTimeout(() => setToast(null), ms);
+    }, []);
+
     // Resizable Layout State. Width is local while dragging — writing through
     // the settings store on every mousemove would thrash localStorage — and is
     // committed once on mouse-up.
@@ -45,6 +56,8 @@ function App() {
 
     // Sidebar & Features State
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const sidebarRef = useRef(null);
+    const menuBtnRef = useRef(null);
     const [summaryResult, setSummaryResult] = useState(null);
     const [viewMode, setViewMode] = useState('analysis'); // 'analysis' | 'summary'
     const [translationMode, setTranslationMode] = useSetting('read.translationMode');
@@ -60,6 +73,16 @@ function App() {
 
     // Reading preferences — persisted, so they survive a reload.
     const [fontMode, setFontMode] = useSetting('ui.fontMode'); // 'default' | 'zen'
+    // The rounded reading face is fetched on first use, so everyone who never
+    // presses AA doesn't pay for a second CJK font.
+    useEffect(() => {
+        if (fontMode !== 'zen' || document.getElementById('gr-zen-font')) return;
+        const link = document.createElement('link');
+        link.id = 'gr-zen-font';
+        link.rel = 'stylesheet';
+        link.href = 'https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&display=swap';
+        document.head.appendChild(link);
+    }, [fontMode]);
     const [highlightedText, setHighlightedText] = useState('');
     const [highlightColor, setHighlightColor] = useSetting('tts.highlightColor'); // 朱 vermilion
 
@@ -84,6 +107,54 @@ function App() {
     const [currentPage, setCurrentPage] = useState(1);
     const [requestedPage, setRequestedPage] = useState(null); // drives the viewer
     const currentPageRef = useRef(1);
+    const currentFileIdRef = useRef(null);
+
+    // ── Thought inbox ─────────────────────────────────────────────────
+    // Everything set down while reading (Q) and in the brain dump, newest
+    // first, until it is marked dealt with.
+    const [thoughts, setThoughts] = useState([]);
+    const refreshThoughts = useCallback(async () => {
+        try {
+            const all = await getDumps(null);
+            setThoughts(all
+                .filter((d) => (d.kind === 'inbox' || d.kind === 'open') && (d.text || '').trim())
+                .sort((a, b) => b.createdAt - a.createdAt));
+        } catch (_) { /* the inbox is a convenience; never block reading on it */ }
+    }, []);
+    useEffect(() => { refreshThoughts(); }, [refreshThoughts]);
+    const addThought = useCallback(async (text) => {
+        try { await addDump({ fileId: currentFileIdRef.current, text, kind: 'inbox' }); }
+        catch (_) { showToast('沒存成功,請再試一次。', 'error'); }
+        refreshThoughts();
+    }, [refreshThoughts]);
+    const doneThought = useCallback(async (id) => {
+        try { await deleteDump(id); } catch (_) { /* gone already */ }
+        refreshThoughts();
+    }, [refreshThoughts]);
+
+    // ── Resume bar ────────────────────────────────────────────────────
+    // "Where was I?" answered at the top of the page: the page you left on and
+    // the next step you wrote at your last clean cut.
+    const [resumeInfo, setResumeInfo] = useState(null); // {fileId, page, next}
+    const lastCutFor = useCallback(async (fileId) => {
+        try {
+            const cuts = (await getDumps(fileId)).filter((d) => d.kind === 'cut');
+            cuts.sort((a, b) => b.createdAt - a.createdAt);
+            const c = cuts[0];
+            return c ? (c.nextStep || c.text || '').trim() : '';
+        } catch (_) { return ''; }
+    }, []);
+    const offerResume = useCallback(async (fileId, page) => {
+        const next = await lastCutFor(fileId);
+        if ((page && page > 1) || next) setResumeInfo({ fileId, page: page || 1, next });
+        else setResumeInfo(null);
+    }, [lastCutFor]);
+
+    // Jump the viewer to a page, even if it was asked for that page before.
+    const goToPage = useCallback((p) => {
+        setRequestedPage(null);
+        requestAnimationFrame(() => setRequestedPage(p));
+    }, []);
     const ttsPageRef = useRef(1);     // page currently being read (for auto-advance)
     const pdfDocumentRef = useRef(null);
 
@@ -124,12 +195,23 @@ function App() {
     const settings = useSettings();
     const flow = settings.flow;
     const pomo = usePomodoro();
+
+    // A minute's warning before the break lock, so it never lands mid-sentence
+    // out of nowhere. Once per focus block.
+    const warnedForRef = useRef(null);
+    useEffect(() => {
+        const sn = pomo.session;
+        if (!sn || sn.phase !== 'focus' || sn.pausedAt) return;
+        if (pomo.remaining > 60000 || pomo.remaining <= 0) return;
+        if (warnedForRef.current === sn.phaseStartedAt) return;
+        warnedForRef.current = sn.phaseStartedAt;
+        showToast('剩 1 分鐘:讀完這段就休息。', 'warn', 8000);
+    }, [pomo.session, pomo.remaining, showToast]);
     const [dumpPrompt, setDumpPrompt] = useState(null); // {mode, docName, page, lastCut} | null
     const [guideOn, setGuideOn] = useSetting('flow.guideEnabled', false);
     const [metaphor, setMetaphor] = useState(null);   // {loading, result, error, text}
     const metaphorTokenRef = useRef(0);
     const [staleDb, setStaleDb] = useState(false);
-    const lastDumpAtRef = useRef(0);
 
     // Another window upgraded the IndexedDB schema, so this window's connection
     // is dead and re-opening at the old version would throw. Ask for a reload
@@ -145,7 +227,12 @@ function App() {
 
     const maybeOpenDump = useCallback(async (fileId, name) => {
         if (!getSetting('flow.dumpBeforeStart')) return;
-        if (Date.now() - lastDumpAtRef.current < DUMP_COOLDOWN_MS) return;
+        // The very first document someone opens goes straight to the text:
+        // being asked to journal before you've seen what the app does is the
+        // fastest way to lose a new reader. From the second one on, offer it.
+        if (!getSetting('flow.dumpOffered')) { setSettingPath('flow.dumpOffered', true, { flush: true }); return; }
+        // Stored, not held in memory, so a reload doesn't reset the cooldown.
+        if (Date.now() - (getSetting('flow.lastDumpAt') || 0) < DUMP_COOLDOWN_MS) return;
         let lastCut = null;
         try {
             const dumps = await getDumps(fileId);
@@ -155,7 +242,7 @@ function App() {
     }, []);
 
     const closeDump = useCallback((saved) => {
-        lastDumpAtRef.current = Date.now();
+        setSettingPath('flow.lastDumpAt', Date.now(), { flush: true });
         setDumpPrompt(null);
         // Starting the clock is the point of the ritual — but only if the user
         // actually has the Pomodoro on, and only if one isn't already running.
@@ -171,7 +258,9 @@ function App() {
             console.error('Failed to save the dump:', err);
         }
         closeDump(true);
-    }, [currentFileId, closeDump]);
+        refreshThoughts();
+        if (kind === 'cut' && typeof currentFileId === 'number') offerResume(currentFileId, currentPageRef.current);
+    }, [currentFileId, closeDump, refreshThoughts, offerResume]);
 
     const handleSkipDump = useCallback(() => {
         bump(dumpPrompt?.mode === 'cut' ? 'stats.skips.cut' : 'stats.skips.dump');
@@ -214,7 +303,7 @@ function App() {
         } catch (err) {
             if (metaphorTokenRef.current !== token) return;
             console.error('Metaphor error:', err);
-            setMetaphor({ error: err.message || '降維失敗', text });
+            setMetaphor({ error: api.friendlyError(err, '降維失敗,請再試一次。'), text });
         }
     }, []);
 
@@ -223,7 +312,7 @@ function App() {
         let blob = null;
         if (kind === 'file') {
             const asset = await getAsset('ambience').catch(() => null);
-            if (!asset) { alert('還沒選音檔。先按「選擇音檔」。'); setSettingPath('audio.ambience', 'off'); return; }
+            if (!asset) { showToast('還沒選音檔。先按「選擇音檔」。'); setSettingPath('audio.ambience', 'off'); return; }
             blob = asset.blob;
         }
         const a = getSetting('audio');
@@ -247,6 +336,9 @@ function App() {
     }, [applyAmbience]);
 
     const handleStartFocus = useCallback(() => {
+        // The toolbar button works even if the Pomodoro was never switched on:
+        // pressing "start" is the switch.
+        if (!getSetting('flow.enabled')) setSettingPath('flow.enabled', true, { flush: true });
         startSession(currentFileId, getSetting('flow'));
         setIsSidebarOpen(false);
     }, [currentFileId]);
@@ -318,11 +410,11 @@ function App() {
         }
     };
 
-    // On first run with no key, open the key settings to prompt the user.
+    // No key yet is fine: reading, notes and focus all work without one. The
+    // key is asked for when an AI feature is first used (the "尚未設定金鑰"
+    // card), not by throwing the settings at someone who just arrived.
     useEffect(() => {
-        refreshKeyStatus().then(has => {
-            if (has === false) { setIsSidebarOpen(true); setOpenSection('apikey'); }
-        });
+        refreshKeyStatus();
         refreshGlossary();
     }, []);
 
@@ -336,7 +428,7 @@ function App() {
             setKeyDraft('');
             await refreshKeyStatus();
         } catch (e) {
-            setKeyError((e && e.response && e.response.data && e.response.data.detail) || e.message || '儲存失敗,請確認金鑰。');
+            setKeyError(api.friendlyError(e, '儲存失敗,請確認金鑰。'));
         } finally {
             setKeySaving(false);
         }
@@ -382,7 +474,7 @@ function App() {
     }, [extractPageText]);
 
     const startReadingFrom = useCallback(async (pageNo) => {
-        if (!pdfDocumentRef.current) { alert('請先載入 PDF 文件。'); return; }
+        if (!pdfDocumentRef.current) { showToast('請先載入 PDF 文件。'); return; }
         ttsPageRef.current = pageNo;
         setRequestedPage(pageNo);
         const segs = splitSentences(await extractPageText(pageNo));
@@ -391,7 +483,7 @@ function App() {
         } else {
             const next = await readNextPage();
             if (next) readerRef.current.start({ segments: next.segments, fileId: currentFileId, getNext: readNextPage });
-            else alert('這份文件沒有可朗讀的文字。');
+            else showToast('這份文件沒有可朗讀的文字。');
         }
     }, [currentFileId, extractPageText, readNextPage]);
 
@@ -429,7 +521,7 @@ function App() {
 
     const handleGenerateBook = async () => {
         const doc = pdfDocumentRef.current;
-        if (!doc) { alert('請先載入 PDF 文件。'); return; }
+        if (!doc) { showToast('請先載入 PDF 文件。'); return; }
         if (bookBusy) return;
 
         // Resolve the page range to generate.
@@ -494,19 +586,29 @@ function App() {
         api.listDigests().then(setDigestList).catch(() => {});
     }, []);
 
-    // Load Library on Mount
+    // Load the library on mount, and open whatever was being read last time:
+    // coming back should land you on the page, not on an empty screen.
     useEffect(() => {
-        loadLibrary();
+        loadLibrary().then((files) => {
+            const id = getSetting('ui.lastFileId');
+            const last = id != null && files.find((f) => f.id === id);
+            if (last) loadFileFromLibrary(last, { quiet: true });
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const loadLibrary = async () => {
         try {
-            const files = await getFiles();
-            setLibraryFiles(files.sort((a, b) => b.timestamp - a.timestamp));
+            const files = (await getFiles()).sort((a, b) => b.timestamp - a.timestamp);
+            setLibraryFiles(files);
+            return files;
         } catch (err) {
             console.error("Failed to load library:", err);
+            return [];
         }
     };
+
+    useEffect(() => { currentFileIdRef.current = currentFileId; }, [currentFileId]);
 
     // Load this document's notes whenever the active file changes.
     useEffect(() => {
@@ -533,7 +635,7 @@ function App() {
 
     const handleCaptureEntry = async (en, zh) => {
         if (!currentFileId) {
-            alert("請先從書庫開啟一份文件，才能擷取為筆記。");
+            showToast("請先從書庫開啟一份文件，才能擷取為筆記。");
             return;
         }
         const saved = await addNote({ fileId: currentFileId, en, zh, source: 'reading', page: currentPageRef.current });
@@ -603,7 +705,7 @@ function App() {
             await refreshNotes();
             return r;
         } catch (err) {
-            alert('寫入 Obsidian 失敗:' + ((err && err.response && err.response.data && err.response.data.detail) || err.message));
+            showToast('寫入 Obsidian 失敗:' + ((err && err.response && err.response.data && err.response.data.detail) || err.message));
             return null;
         } finally {
             setVaultBusy(null);
@@ -667,7 +769,7 @@ function App() {
         } catch (err) {
             if (pretendTokenRef.current !== token) return;
             setPretendState({
-                error: (err && err.response && err.response.data && err.response.data.detail) || err.message || '角色濾鏡失敗',
+                error: api.friendlyError(err, '角色濾鏡失敗,請再試一次。'),
                 text, persona: p,
             });
         }
@@ -708,33 +810,40 @@ function App() {
             setTimeout(() => setJustGlossaried(null), 1200);
             refreshGlossary();
         } catch (err) {
-            alert(err?.message || '無法寫入片語本。');
+            showToast(err?.message || '無法寫入片語本。');
         }
     };
 
     const handleExportNotes = () => {
         if (!notes.length) {
-            alert("這份文件尚無筆記可匯出。");
+            showToast("這份文件尚無筆記可匯出。");
             return;
         }
         const ordered = [...notes].sort((a, b) => a.createdAt - b.createdAt);
-        const content = ordered.map(n => {
-            const t = new Date(n.createdAt).toLocaleString();
+        const stamp = (ts) => {
+            const d = new Date(ts);
+            const p = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+        };
+        const header = `《${currentDocName || '未命名文件'}》筆記 · ${ordered.length} 則 · 匯出於 ${stamp(Date.now())}`;
+        const content = header + '\n\n' + ordered.map(n => {
+            const where = n.page ? ` · p.${n.page}` : '';
+            const t = `[${stamp(n.createdAt)}${where}]`;
             if (n.source === 'reading') {
-                return `[${t}]\n[EN] ${n.en}\n[ZH] ${n.zh}${n.text ? `\n${n.text}` : ''}`;
+                return `${t}\n[EN] ${n.en}\n[ZH] ${n.zh}${n.text ? `\n${n.text}` : ''}`;
             }
-            return `[${t}]\n${n.text}`;
+            return `${t}\n${n.text}`;
         }).join('\n\n──────────\n\n');
 
         const blob = new Blob([content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `notes_${new Date().getTime()}.txt`;
+        a.download = `${(currentDocName || 'notes').replace(/\.pdf$/i, '')} 筆記.txt`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
 
     const fmtTime = (ts) => {
@@ -743,8 +852,24 @@ function App() {
         return `${p(d.getMonth() + 1)}.${p(d.getDate())} · ${p(d.getHours())}:${p(d.getMinutes())}`;
     };
 
+    // The picker's "accept" is only a hint (and the iPad Files app ignores it),
+    // so check the bytes: a PDF announces itself with %PDF- near the start.
+    const isPdfFile = async (file) => {
+        try {
+            const head = await file.slice(0, 1024).arrayBuffer();
+            return new TextDecoder('latin1').decode(head).includes('%PDF-');
+        } catch (_) {
+            return /\.pdf$/i.test(file.name || '');
+        }
+    };
+
     const handleFileChange = async (e) => {
         const file = e.target.files[0];
+        if (e.target) e.target.value = ''; // picking the same file again still fires
+        if (file && !(await isPdfFile(file))) {
+            showToast(`「${file.name}」不是 PDF 檔,沒有加進書庫。`, 'error');
+            return;
+        }
         if (file) {
             try {
                 const newId = await saveFile(file);
@@ -754,21 +879,45 @@ function App() {
                 setCurrentFileId(newId); // Assuming saveFile returns the ID, checking db.js implementation
                 setCurrentDocName(file.name);
                 setInitialPage(1);
+                setIsSidebarOpen(false);
+                setResumeInfo(null);
+                setSettingPath('ui.lastFileId', newId);
                 maybeOpenDump(newId, file.name);
             } catch (err) {
                 console.error("Failed to save file:", err);
-                alert("Failed to save file to library.");
+                showToast("存進書庫失敗,請再試一次。", 'error');
             }
         }
     };
 
-    const loadFileFromLibrary = (fileData) => {
+    // Deleting takes two presses. On a tablet the delete button is always
+    // showing, and a file is the one thing here that can't be got back.
+    const [pendingDelete, setPendingDelete] = useState(null);
+    const pendingDeleteTimer = useRef(null);
+    const askDelete = (file) => {
+        clearTimeout(pendingDeleteTimer.current);
+        if (pendingDelete === file.id) {
+            setPendingDelete(null);
+            deleteFile(file.id).then(loadLibrary);
+            showToast(`已刪除《${file.name}》。`);
+            return;
+        }
+        setPendingDelete(file.id);
+        pendingDeleteTimer.current = setTimeout(() => setPendingDelete(null), 3000);
+    };
+
+    // `quiet`: reopening on launch. You're picking up where you left off, so
+    // skip the before-reading ritual and just show where that was.
+    const loadFileFromLibrary = (fileData, { quiet = false } = {}) => {
         reader.stop();
         setExternalFile(fileData.data);
         setCurrentFileId(fileData.id);
         setCurrentDocName(fileData.name);
         setInitialPage(fileData.lastPage || 1);
-        maybeOpenDump(fileData.id, fileData.name);
+        setIsSidebarOpen(false);
+        setSettingPath('ui.lastFileId', fileData.id);
+        offerResume(fileData.id, fileData.lastPage || 1);
+        if (!quiet) maybeOpenDump(fileData.id, fileData.name);
     };
 
     // Open a Zotero paper's PDF straight into the reader (read-only).
@@ -784,7 +933,7 @@ function App() {
             setIsSidebarOpen(false);
             maybeOpenDump(`zotero:${item.attKey}`, item.title);
         } catch (e) {
-            alert('無法開啟此 PDF。');
+            showToast('無法開啟此 PDF。');
         } finally {
             setZoteroLoading(false);
         }
@@ -835,6 +984,8 @@ function App() {
     const handlePageChange = useCallback(async (page) => {
         setCurrentPage(page);
         currentPageRef.current = page;
+        // Once you've moved on from the page you resumed on, the bar has done its job.
+        setResumeInfo((r) => (r && r.page !== page ? null : r));
         if (typeof currentFileId === 'number') {
             try {
                 await updateFilePage(currentFileId, page);
@@ -849,6 +1000,28 @@ function App() {
     const toggleSection = (section) => {
         setOpenSection(openSection === section ? null : section);
     };
+
+    // The drawer for keyboard users. Closed, it is inert: Tab can't wander into
+    // controls that are off screen. Open, focus moves into it and Escape closes
+    // it; closing hands focus back to the menu button if it was inside.
+    useEffect(() => {
+        const aside = sidebarRef.current;
+        if (!aside) return undefined;
+        aside.inert = !isSidebarOpen;
+        if (!isSidebarOpen) {
+            if (aside.contains(document.activeElement) && menuBtnRef.current) menuBtnRef.current.focus();
+            return undefined;
+        }
+        const first = aside.querySelector('.gr-side-toggle');
+        if (first && !aside.contains(document.activeElement)) first.focus({ preventScroll: true });
+        const onKey = (e) => {
+            if (e.key !== 'Escape') return;
+            if (document.querySelector('.gr-modal-backdrop, .gr-lock, .gr-share-backdrop')) return;
+            setIsSidebarOpen(false);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [isSidebarOpen]);
 
     // Handle Resizing. Pointer events, so a finger drags it as well as a mouse.
     // When the panes are stacked (an upright iPad), the same split is a height.
@@ -925,7 +1098,7 @@ function App() {
         } catch (err) {
             if (translateTokenRef.current !== token) return;
             console.error("API Error:", err);
-            setError("無法分析文本，請確認後端服務正在運行。");
+            setError(api.friendlyError(err, '翻譯失敗,請再試一次。'));
         } finally {
             if (translateTokenRef.current === token) setIsLoading(false);
         }
@@ -934,6 +1107,10 @@ function App() {
     const handleDocumentLoad = useCallback((pdf) => {
         pdfDocumentRef.current = pdf;
         setPdfNumPages(pdf.numPages);
+        const id = currentFileIdRef.current;
+        if (typeof id === 'number') {
+            updateFileMeta(id, { numPages: pdf.numPages }).then((changed) => { if (changed) loadLibrary(); }).catch(() => {});
+        }
         setBookFrom(1);
         setBookTo(pdf.numPages);
     }, []);
@@ -958,8 +1135,9 @@ function App() {
     };
 
     const handleSummarize = async (length) => {
+        setIsSidebarOpen(false); // the summary appears in the analysis pane; don't hide it
         if (!pdfDocumentRef.current) {
-            alert("請先載入 PDF 文件。");
+            showToast("請先載入 PDF 文件。");
             return;
         }
         setIsSummarizing(true);
@@ -974,7 +1152,7 @@ function App() {
             setSummaryResult(summary);
         } catch (err) {
             console.error("Summarize Error:", err);
-            setError("文件摘要生成失敗。");
+            setError(api.friendlyError(err, '摘要失敗,請再試一次。'));
         } finally {
             setIsSummarizing(false);
         }
@@ -982,7 +1160,7 @@ function App() {
 
     const handleExport = (type) => {
         if (!analysisResult || !Array.isArray(analysisResult)) {
-            alert("尚無翻譯資料可匯出。");
+            showToast("尚無翻譯資料可匯出。");
             return;
         }
 
@@ -1015,9 +1193,12 @@ function App() {
         <div className={`gr-app gr-scroll ${fontMode === 'zen' ? 'is-zen' : ''}`} style={{ '--split': `${leftWidth}%` }}>
             {/* Sidebar Toggle */}
             <button
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                ref={menuBtnRef}
+                onClick={() => { if (!isSidebarOpen) loadLibrary(); setIsSidebarOpen(!isSidebarOpen); }}
                 className="gr-menu-btn"
                 title={isSidebarOpen ? '關閉側欄' : '開啟側欄'}
+                aria-label={isSidebarOpen ? '關閉側欄' : '開啟側欄'}
+                aria-expanded={isSidebarOpen}
             >
                 {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
@@ -1029,7 +1210,7 @@ function App() {
             />
 
             {/* Sidebar Drawer */}
-            <aside className={`gr-sidebar gr-scroll ${isSidebarOpen ? 'is-open' : ''}`}>
+            <aside ref={sidebarRef} className={`gr-sidebar gr-scroll ${isSidebarOpen ? 'is-open' : ''}`} aria-label="側欄">
                 <div className="gr-side-head">
                     <div className="gr-side-mark">Yun's <span>Reader</span></div>
                     <div className="gr-side-sub">昀氏閱讀 · 雙語精讀 · II</div>
@@ -1066,14 +1247,21 @@ function App() {
                                                 onClick={() => loadFileFromLibrary(file)}
                                                 title={file.name}
                                             >
-                                                {file.name}
+                                                <span className="gr-file-title">{file.name}</span>
+                                                {file.numPages ? (
+                                                    <span className="gr-file-progress" aria-label={`讀到第 ${file.lastPage || 1} 頁,共 ${file.numPages} 頁`}>
+                                                        <span className="gr-file-bar"><span style={{ width: `${Math.min(100, Math.round(((file.lastPage || 1) / file.numPages) * 100))}%` }} /></span>
+                                                        <span className="gr-file-pages">{file.lastPage || 1} / {file.numPages}</span>
+                                                    </span>
+                                                ) : null}
                                             </button>
                                             <button
-                                                className="gr-file-del"
-                                                onClick={(e) => { e.stopPropagation(); deleteFile(file.id).then(loadLibrary); }}
-                                                title="刪除"
+                                                className={`gr-file-del ${pendingDelete === file.id ? 'is-armed' : ''}`}
+                                                onClick={(e) => { e.stopPropagation(); askDelete(file); }}
+                                                title={pendingDelete === file.id ? '再按一次就刪除' : '刪除'}
+                                                aria-label={pendingDelete === file.id ? `再按一次刪除 ${file.name}` : `刪除 ${file.name}`}
                                             >
-                                                <X size={14} />
+                                                {pendingDelete === file.id ? '刪除?' : <X size={14} />}
                                             </button>
                                         </div>
                                     ))
@@ -1425,11 +1613,11 @@ function App() {
                     )}
                 </section>
 
-                {/* 07 心流 */}
+                {/* 06 心流 */}
                 <section className="gr-side-sec">
                     <button className="gr-side-toggle" onClick={() => toggleSection('flow')}>
                         <span className="grp">
-                            <span className="num">07</span>
+                            <span className="num">06</span>
                             <span className="zh">心流專注</span>
                         </span>
                         <ChevronDown size={13} className={`chev ${openSection === 'flow' ? 'open' : ''}`} />
@@ -1497,6 +1685,24 @@ function App() {
                                 </div>
                             </label>
 
+                            <label className="gr-audio-field">
+                                <span className="gr-audio-field-label">休息後自動開始下一輪</span>
+                                <div className="gr-seg gr-seg--full">
+                                    <button
+                                        className={flow.autoStartFocus ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('flow.autoStartFocus', true)}
+                                    >
+                                        自動
+                                    </button>
+                                    <button
+                                        className={!flow.autoStartFocus ? 'is-active' : ''}
+                                        onClick={() => setSettingPath('flow.autoStartFocus', false)}
+                                    >
+                                        等我按開始
+                                    </button>
+                                </div>
+                            </label>
+
                             {!pomo.running ? (
                                 <button className="gr-side-btn" onClick={handleStartFocus} disabled={!flow.enabled}>
                                     <span className="zh">
@@ -1529,7 +1735,9 @@ function App() {
                                 </div>
                             </div>
                             <p className="gr-audio-hint">
-                                通知無法從 App 內關閉 —— 那是作業系統的權限。專注前請自己開 macOS 專注模式。
+                                {IS_WEB
+                                    ? '通知無法從 App 內關閉:那是系統的權限。專注前請自己打開裝置的「專注模式」(iPad:從右上角拉下控制中心)。'
+                                    : '通知無法從 App 內關閉:那是作業系統的權限。專注前請自己開 macOS 專注模式。'}
                             </p>
 
                             <div className="gr-book">
@@ -1581,11 +1789,11 @@ function App() {
                     )}
                 </section>
 
-                {/* 08 音場 */}
+                {/* 07 音場 */}
                 <section className="gr-side-sec">
                     <button className="gr-side-toggle" onClick={() => toggleSection('sound')}>
                         <span className="grp">
-                            <span className="num">08</span>
+                            <span className="num">07</span>
                             <span className="zh">音場</span>
                         </span>
                         <ChevronDown size={13} className={`chev ${openSection === 'sound' ? 'open' : ''}`} />
@@ -1677,6 +1885,38 @@ function App() {
                     )}
                 </section>
 
+                {/* 08 每日摘要 */}
+                <section className="gr-side-sec">
+                    <button className="gr-side-toggle" onClick={() => toggleSection('digest')}>
+                        <span className="grp">
+                            <span className="num">08</span>
+                            <span className="zh">每日摘要</span>
+                        </span>
+                        <ChevronDown size={13} className={`chev ${openSection === 'digest' ? 'open' : ''}`} />
+                    </button>
+                    <div className="gr-side-en">Daily Digest · 研究機會</div>
+
+                    {openSection === 'digest' && (
+                        <div className="gr-side-body">
+                            {digestList.length === 0 ? (
+                                <div className="gr-file-empty">尚無摘要 · no digest yet</div>
+                            ) : (
+                                digestList.map(item => (
+                                    <button
+                                        key={item.date}
+                                        className={`gr-side-btn${activeDigest && activeDigest.date === item.date ? ' is-active' : ''}`}
+                                        onClick={() => openDigest(item.date)}
+                                        disabled={digestLoading}
+                                    >
+                                        <span className="zh">{item.date}</span>
+                                        <span className="en"><BookOpen size={11} style={{ verticalAlign: '-1px', marginRight: 4 }} />Research Digest</span>
+                                    </button>
+                                ))
+                            )}
+                        </div>
+                    )}
+                </section>
+
                 {/* 09 聯想筆記 — desktop only: the vault is on disk */}
                 {!IS_WEB && (
                 <section className="gr-side-sec">
@@ -1738,37 +1978,6 @@ function App() {
                 </section>
                 )}
 
-                {/* 06 每日摘要 */}
-                <section className="gr-side-sec">
-                    <button className="gr-side-toggle" onClick={() => toggleSection('digest')}>
-                        <span className="grp">
-                            <span className="num">06</span>
-                            <span className="zh">每日摘要</span>
-                        </span>
-                        <ChevronDown size={13} className={`chev ${openSection === 'digest' ? 'open' : ''}`} />
-                    </button>
-                    <div className="gr-side-en">Daily Digest · 研究機會</div>
-
-                    {openSection === 'digest' && (
-                        <div className="gr-side-body">
-                            {digestList.length === 0 ? (
-                                <div className="gr-file-empty">尚無摘要 · no digest yet</div>
-                            ) : (
-                                digestList.map(item => (
-                                    <button
-                                        key={item.date}
-                                        className={`gr-side-btn${activeDigest && activeDigest.date === item.date ? ' is-active' : ''}`}
-                                        onClick={() => openDigest(item.date)}
-                                        disabled={digestLoading}
-                                    >
-                                        <span className="zh">{item.date}</span>
-                                        <span className="en"><BookOpen size={11} style={{ verticalAlign: '-1px', marginRight: 4 }} />Research Digest</span>
-                                    </button>
-                                ))
-                            )}
-                        </div>
-                    )}
-                </section>
             </aside>
 
             {/* Left Panel — PDF Reader */}
@@ -1795,17 +2004,53 @@ function App() {
                         challenge: flow.challenge,
                         mode: flow.guideMode,
                     }}
-                    toolbarExtra={pomo.running ? (
-                        <FocusTimer
-                            remaining={pomo.remaining}
-                            progress={pomo.progress}
-                            phase={pomo.session.phase}
-                            cycle={pomo.session.cycle}
-                            paused={pomo.paused}
-                            onToggle={togglePause}
-                            onStop={() => endSession('stopped')}
-                        />
+                    topBanner={awaitingStart(pomo.session) ? (
+                        <div className="gr-resume is-ready" role="status">
+                            <span className="gr-resume-k">休息結束</span>
+                            <span className="gr-resume-t">
+                                接續 p.{currentPage}
+                                {resumeInfo && resumeInfo.fileId === currentFileId && resumeInfo.next ? ` · 下一步:${resumeInfo.next}` : ''}
+                            </span>
+                            <button className="gr-btn gr-btn--solid gr-resume-go" onClick={togglePause}>
+                                開始下一輪 · {flow.focusMin} 分
+                            </button>
+                        </div>
+                    ) : (resumeInfo && resumeInfo.fileId === currentFileId && externalFile) ? (
+                        <div className="gr-resume" role="status">
+                            <span className="gr-resume-k">接續</span>
+                            <span className="gr-resume-t">
+                                p.{resumeInfo.page}{resumeInfo.next ? ` · 下一步:${resumeInfo.next}` : ''}
+                            </span>
+                            <button className="gr-resume-x" onClick={() => setResumeInfo(null)} aria-label="收起接續提示"><X size={14} /></button>
+                        </div>
                     ) : null}
+                    toolbarExtra={(
+                        <>
+                            <ThoughtInbox items={thoughts} onAdd={addThought} onDone={doneThought} />
+                            {pomo.running ? (
+                                <FocusTimer
+                                    remaining={pomo.remaining}
+                                    progress={pomo.progress}
+                                    phase={pomo.session.phase}
+                                    cycle={pomo.session.cycle}
+                                    paused={pomo.paused}
+                                    ending={pomo.session.phase === 'focus' && !pomo.paused && pomo.remaining <= 60000}
+                                    onToggle={togglePause}
+                                    onStop={() => endSession('stopped')}
+                                />
+                            ) : (
+                                <button
+                                    className="gr-btn gr-btn--icon gr-focus-start"
+                                    onClick={handleStartFocus}
+                                    title={`開始 ${flow.focusMin} 分鐘專注`}
+                                    aria-label={`開始 ${flow.focusMin} 分鐘專注`}
+                                >
+                                    <Timer size={14} />
+                                    <span className="gr-focus-label">專注 {flow.focusMin}</span>
+                                </button>
+                            )}
+                        </>
+                    )}
                 />
                 {ttsActive && (
                     <AudioBar
@@ -2221,6 +2466,11 @@ function App() {
                                             <div className="gr-note" key={n.id}>
                                                 <div className="gr-note-head">
                                                     <span className="gr-note-time">{fmtTime(n.createdAt)}</span>
+                                                    {n.page ? (
+                                                        <button className="gr-note-page" onClick={() => goToPage(n.page)} title={`回到第 ${n.page} 頁`}>
+                                                            p.{n.page}
+                                                        </button>
+                                                    ) : null}
                                                     {n.source === 'reading' && <span className="gr-note-tag">對譯</span>}
                                                     {n.vaultPath && <span className="gr-note-tag gr-note-tag--vault">Obsidian</span>}
                                                     <span className="gr-note-acts">
@@ -2350,10 +2600,19 @@ function App() {
                         isLong={pomo.session.phase === 'longBreak'}
                         cycle={pomo.session.cycle}
                         skipCount={settings.stats.skips.break}
+                        thoughts={thoughts.slice(0, 5)}
+                        moreThoughts={Math.max(0, thoughts.length - 5)}
                         holdMs={flow.holdMs}
                         onSkip={handleSkipBreak}
                     />
                 </Suspense>
+            )}
+
+            {toast && (
+                <div key={toast.id} className={`gr-toast gr-toast--${toast.kind}`} role="status" aria-live="polite">
+                    <span>{toast.msg}</span>
+                    <button className="gr-toast-x" onClick={() => setToast(null)} aria-label="關閉提示"><X size={14} /></button>
+                </div>
             )}
 
             {staleDb && (

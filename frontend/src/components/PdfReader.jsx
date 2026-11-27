@@ -12,7 +12,7 @@ import GuideCursor from './GuideCursor';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
-const PdfReader = ({ onFileUpload, onTextSelect, onReadSelection, onExplain, onPretend, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, guide }) => {
+const PdfReader = ({ onFileUpload, onTextSelect, onReadSelection, onExplain, onPretend, onDocumentLoad, highlightedText, highlightColor, externalFile, initialPage, onPageChange, requestedPage, onReadPage, autoScroll, isReading, toolbarExtra, topBanner, guide }) => {
     const [numPages, setNumPages] = useState(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [file, setFile] = useState(null);
@@ -78,6 +78,10 @@ const PdfReader = ({ onFileUpload, onTextSelect, onReadSelection, onExplain, onP
             const t = e.target;
             if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
             if (e.metaKey || e.ctrlKey || e.altKey) return;
+            // Nothing behind an overlay moves: not during a break lock (paging
+            // there loses your place), and not while a dialog or the sidebar
+            // has the user's attention.
+            if (document.querySelector('.gr-lock, .gr-modal-backdrop, .gr-share-backdrop, .gr-backdrop.is-open')) return;
             if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prevPage(); }
             else if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); nextPage(); }
             else if (e.key === 'Home') { e.preventDefault(); goTo(1); }
@@ -397,7 +401,7 @@ const PdfReader = ({ onFileUpload, onTextSelect, onReadSelection, onExplain, onP
                             <button className="gr-btn gr-btn--icon" onClick={() => setScale(s => Math.min(s + 0.1, 3.0))} title="放大">
                                 <Plus size={14} />
                             </button>
-                            <button className="gr-btn gr-btn--icon" onClick={fitWidth} title="適合寬度">
+                            <button className="gr-btn gr-btn--icon gr-fit-btn" onClick={fitWidth} title="適合寬度">
                                 <Maximize2 size={13} />
                             </button>
                         </div>
@@ -416,6 +420,8 @@ const PdfReader = ({ onFileUpload, onTextSelect, onReadSelection, onExplain, onP
                     must stay visible (and stoppable) even with no PDF open. */}
                 {toolbarExtra}
             </div>
+
+            {topBanner}
 
             <div className="gr-canvas gr-scroll" ref={scrollRef}>
                 {file ? (

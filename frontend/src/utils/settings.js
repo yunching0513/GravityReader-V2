@@ -45,6 +45,9 @@ export const DEFAULTS = Object.freeze({
         longBreakMin: 15,
         cyclesToLong: 4,
         dumpBeforeStart: true,
+        dumpOffered: false,     // the first document opens without the dump
+        lastDumpAt: 0,          // 30-minute cooldown survives a reload
+        autoStartFocus: false,  // after a break, wait for the reader to press start
         cleanCut: true,
         holdMs: 2000,
     },

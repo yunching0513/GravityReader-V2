@@ -12,7 +12,7 @@ import { fmtRemaining } from '../utils/pomodoro';
 // Escape is deliberately not bound. The 2-second hold is the only way out, and
 // it is always visible and never disabled.
 
-const BreakLock = ({ remaining, progress, isLong, cycle, skipCount, holdMs, onSkip }) => (
+const BreakLock = ({ remaining, progress, isLong, cycle, skipCount, holdMs, onSkip, thoughts = [], moreThoughts = 0 }) => (
     <div className="gr-lock" role="dialog" aria-modal="true" aria-label="休息中">
         <div className="gr-lock-inner">
             <div className="gr-lock-kicker">
@@ -39,6 +39,18 @@ const BreakLock = ({ remaining, progress, isLong, cycle, skipCount, holdMs, onSk
             <p className="gr-lock-note">
                 把眼睛放遠一點。不要滑手機 —— 低認知負荷的休息才有用。
             </p>
+
+            {/* What you set aside while reading. Shown, not to be dealt with now:
+                knowing it's written down is what lets it go. */}
+            {thoughts.length > 0 && (
+                <div className="gr-lock-thoughts">
+                    <div className="gr-lock-thoughts-head">你記下的事 · 休息完再處理</div>
+                    <ul>
+                        {thoughts.map((t) => <li key={t.id}>{t.text}</li>)}
+                    </ul>
+                    {moreThoughts > 0 && <div className="gr-lock-thoughts-more">還有 {moreThoughts} 則</div>}
+                </div>
+            )}
 
             <HoldToSkip
                 ms={holdMs}

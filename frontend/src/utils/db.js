@@ -153,6 +153,27 @@ export const updateFilePage = async (id, page) => {
     });
 };
 
+// Record a document's page count, for the library's progress bar. Unlike
+// updateFilePage this doesn't touch `timestamp`: just opening a file shouldn't
+// reorder the list.
+export const updateFileMeta = async (id, patch) => {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const store = db.transaction([STORE_NAME], 'readwrite').objectStore(STORE_NAME);
+        const getRequest = store.get(id);
+        getRequest.onsuccess = () => {
+            const data = getRequest.result;
+            if (!data) { resolve(false); return; }
+            const changed = Object.keys(patch).some((k) => data[k] !== patch[k]);
+            if (!changed) { resolve(false); return; }
+            const put = store.put({ ...data, ...patch });
+            put.onsuccess = () => resolve(true);
+            put.onerror = () => reject(put.error);
+        };
+        getRequest.onerror = () => reject(getRequest.error);
+    });
+};
+
 // ── Notes ─────────────────────────────────────────────────────────────
 // A note belongs to a file (fileId). It may be a free-form thought, or a
 // passage captured from the bilingual reading (en/zh). source: 'manual' | 'reading'.

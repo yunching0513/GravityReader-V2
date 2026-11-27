@@ -23,6 +23,7 @@ export function cfgFrom(flow) {
         breakMs: Math.max(1, flow.breakMin || 5) * MIN,
         longBreakMs: Math.max(1, flow.longBreakMin || 15) * MIN,
         cyclesToLong: Math.max(1, flow.cyclesToLong || 4),
+        autoStartFocus: Boolean(flow.autoStartFocus),
     };
 }
 
@@ -137,12 +138,23 @@ export function nextPhase(session, cfg, now = Date.now()) {
         };
     }
 
+    // A break has ended. Coming back from a break is its own small start, so by
+    // default the next focus block waits, paused at full length, until the
+    // reader presses start. `pausedAt` is the break's end, not `now`, so every
+    // window still computes the same successor.
     return {
         ...session,
         phase: 'focus',
         phaseStartedAt: session.phaseEndsAt,
         phaseEndsAt: session.phaseEndsAt + cfg.focusMs,
+        pausedAt: cfg.autoStartFocus ? null : session.phaseEndsAt,
     };
+}
+
+/** True while a focus block is waiting for the reader to begin it. */
+export function awaitingStart(session) {
+    return Boolean(session) && session.phase === 'focus'
+        && Boolean(session.pausedAt) && session.pausedAt === session.phaseStartedAt;
 }
 
 /** Apply a due transition, if any. Safe to call from every window, every tick. */
@@ -186,6 +198,7 @@ export function skipPhase(flow) {
     // Rebase onto `now` — a skipped phase shouldn't shorten the next one.
     const rebased = {
         ...next,
+        pausedAt: null,
         phaseStartedAt: now,
         phaseEndsAt: now + (next.phase === 'focus'
             ? cfg.focusMs

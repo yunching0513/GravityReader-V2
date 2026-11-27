@@ -40,17 +40,60 @@ async function callGemini(model, body, key, { timeout = DEFAULT_TIMEOUT_MS } = {
         });
     } catch (e) {
         if (e.name === 'AbortError') throw new Error('Gemini 沒有在時限內回應,請再試一次。');
-        throw e;
+        throw new Error(networkMessage());
     } finally {
         clearTimeout(timer);
     }
     if (!res.ok) {
         const text = await res.text().catch(() => '');
-        const err = new Error(`Gemini ${res.status}: ${text.slice(0, 200)}`);
+        let detail = '';
+        try { detail = JSON.parse(text)?.error?.message || ''; } catch (_) { detail = text; }
+        const err = new Error(geminiMessage(res.status, detail));
         err.status = res.status;
+        err.detail = detail.slice(0, 300);   // the raw reason, for the console, not the screen
+        console.error(`Gemini ${res.status}:`, err.detail);
         throw err;
     }
     return res.json();
+}
+
+function networkMessage() {
+    return (typeof navigator !== 'undefined' && navigator.onLine === false)
+        ? '現在沒有網路。PDF 和筆記照常可用,翻譯等 AI 功能要等連上網路。'
+        : '連不上 Gemini。請確認網路,或稍後再試。';
+}
+
+// Gemini's own error text is English JSON meant for developers. Say what
+// happened and what to do about it instead.
+function geminiMessage(status, detail = '') {
+    const d = String(detail).toLowerCase();
+    if (status === 400 && /api key|api_key/.test(d)) return '金鑰無效。請到「API 金鑰」重新貼上,確認有完整複製。';
+    if (status === 400) return 'Gemini 看不懂這次的請求。選取的文字太長的話,試著選短一點。';
+    if (status === 401 || status === 403) return '這把金鑰沒有權限使用 Gemini。請到 Google AI Studio 確認金鑰。';
+    if (status === 404) return '找不到這個 Gemini 模型,可能已經停用。請更新 App。';
+    if (status === 429) return 'Gemini 的免費額度暫時用完了。等一兩分鐘再試。';
+    if (status >= 500) return 'Gemini 那邊暫時出問題了。稍後再試。';
+    return `Gemini 回應錯誤(${status})。稍後再試。`;
+}
+
+/**
+ * One readable sentence for any error the API layer can throw: the web
+ * build's Gemini errors (already readable), the desktop backend's
+ * `{detail}` responses, and a dropped connection.
+ */
+export function friendlyError(err, fallback = '發生錯誤,請再試一次。') {
+    if (!err) return fallback;
+    const resp = err.response;
+    if (resp) {
+        const detail = resp.data && resp.data.detail;
+        if (resp.status === 503 && /key|金鑰/i.test(String(detail || ''))) return '尚未設定 Gemini API 金鑰,請到「API 金鑰」填入。';
+        if (typeof detail === 'string' && detail && !/^\s*[{[]/.test(detail)) return detail;
+        return geminiMessage(resp.status, typeof detail === 'string' ? detail : '');
+    }
+    if (err.request && !err.status) return NO_BACKEND ? networkMessage() : '連不上本機的閱讀器服務。請重新開啟 App。';
+    const msg = String(err.message || '');
+    if (!msg || /^\s*[{[]/.test(msg) || /^(TypeError|Failed to fetch|Network Error)/i.test(msg)) return fallback;
+    return msg;
 }
 
 function extractText(json) {
@@ -328,7 +371,7 @@ export async function saveKey(key) {
     try {
         await callGemini(GEMINI_MODEL, { contents: [{ parts: [{ text: 'ping' }] }] }, k, { timeout: 20000 });
     } catch (e) {
-        throw new Error('金鑰驗證失敗:' + (e.message || '').slice(0, 140));
+        throw new Error(e.message || '金鑰驗證失敗,請再試一次。');
     }
     setStoredKey(k);
     return { ok: true, hasKey: true };

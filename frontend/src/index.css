@@ -28,7 +28,8 @@
   --zh-serif: var(--zh-sans);
   --en-serif: var(--zh-sans);
   --mono:     var(--zh-sans);
-  --zen:      var(--zh-sans);
+  /* The AA button's rounded face, loaded only when someone turns it on. */
+  --zen:      'Zen Maru Gothic', var(--zh-sans);
 
   /* ── Grid ── */
   --rule:     2px solid var(--ink);   /* structural rule */
@@ -2412,10 +2413,6 @@ body { font-weight: 400; line-height: 1.55; font-feature-settings: 'cv11', 'ss01
 /* The wordmark never wraps; in a narrow pane the Chinese half steps aside. */
 .gr-reader-bar { container-type: inline-size; }
 .gr-brand .mark { white-space: nowrap; }
-@container (max-width: 640px) {
-  .gr-brand .zh { display: none; }
-  .gr-ctrls { gap: 6px; }
-}
 
 /* selection popup, placed under the selection on touch */
 .gr-sel-pop.is-below { transform: translate(-50%, 0); }
@@ -2466,10 +2463,6 @@ body { font-weight: 400; line-height: 1.55; font-feature-settings: 'cv11', 'ss01
 .gr-reader-bar > * { min-width: 0; }
 .gr-ctrls { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .gr-ctrls::-webkit-scrollbar { display: none; }
-@container (max-width: 520px) {
-  .gr-brand { display: none; }
-  .gr-zoom-val { display: none; }
-}
 @container (max-width: 700px) {
   .gr-tab em, .gr-tool-label { display: none; }
   .gr-head-tools { gap: 12px; }
@@ -2482,3 +2475,141 @@ body { font-weight: 400; line-height: 1.55; font-feature-settings: 'cv11', 'ss01
   /* 44px buttons + padding: both headers get the same floor */
   .gr-reader-bar, .gr-analysis-head { min-height: 72px; }
 }
+
+/* ════════ TOAST ════════
+   Replaces alert(): a strip along the bottom that never takes focus. */
+.gr-toast {
+  position: fixed; z-index: 120;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  max-width: min(560px, calc(100vw - 32px));
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 12px 12px 18px;
+  background: var(--ink); color: var(--paper);
+  font-size: 14px; line-height: 1.5;
+  animation: gr-fade 0.18s ease;
+}
+.gr-toast--error { background: var(--indigo); }
+.gr-toast--warn { background: var(--ink); border-left: 4px solid var(--indigo); }
+.gr-toast-x { background: none; border: none; color: inherit; cursor: pointer; display: flex; padding: 4px; opacity: .8; }
+.gr-toast-x:hover { opacity: 1; }
+.gr-file-del.is-armed { opacity: 1; color: var(--paper); background: var(--indigo); font-size: 12px; font-weight: 700; padding: 2px 8px; }
+
+
+/* ════════ READER TOOLBAR · narrow panes ════════
+   The bar holds more now (inbox, focus). As the pane narrows, the least
+   needed parts step aside in this order, so nothing is ever cut off:
+   the Chinese wordmark, labels and the zoom readout, the wordmark itself,
+   fit-to-width, then the zoom buttons (pinch and ⌘± still zoom). */
+/* Widths are the bar's content box (it has 66px of left padding for the
+   menu button). Half of a 1440 screen gives about 630; an iPad landscape
+   half about 510. */
+@container (max-width: 760px) {
+  .gr-brand .zh { display: none; }
+  .gr-ctrls { gap: 6px; }
+}
+@container (max-width: 700px) {
+  .gr-zoom-val, .gr-timer-phase, .gr-timer-stop { display: none; }
+}
+@container (max-width: 600px) {
+  .gr-brand, .gr-focus-label { display: none; }
+}
+@container (max-width: 520px) {
+  .gr-fit-btn { display: none; }
+}
+@container (max-width: 420px) {
+  .gr-zoom { display: none; }
+}
+.gr-reader-bar { gap: 10px; justify-content: flex-start; }
+.gr-reader-bar > .gr-brand { margin-right: auto; }
+
+/* focus start + timer */
+.gr-focus-start { gap: 6px; }
+.gr-focus-label { font-size: 12px; font-weight: 500; }
+.gr-timer { border-color: var(--ink); background: var(--paper); }
+.gr-timer.is-ending { border-color: var(--indigo); background: var(--indigo); }
+.gr-timer.is-ending .gr-timer-clock, .gr-timer.is-ending .gr-timer-phase,
+.gr-timer.is-ending .gr-timer-btn { color: var(--paper); }
+@media (prefers-reduced-motion: no-preference) {
+  .gr-timer.is-ending { animation: gr-ending 2s ease-in-out infinite; }
+}
+@keyframes gr-ending { 50% { opacity: .75; } }
+
+/* ════════ THOUGHT INBOX ════════ */
+.gr-inbox-btn { position: relative; }
+.gr-inbox-btn.is-open { background: var(--ink); color: var(--paper); }
+.gr-inbox-count {
+  position: absolute; top: -7px; right: -7px;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  background: var(--indigo); color: var(--paper);
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.gr-inbox {
+  position: fixed; z-index: 85;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(480px, calc(100dvh - 120px)); overflow-y: auto;
+  background: var(--paper); border: 1px solid var(--ink);
+  padding: 14px 16px 16px;
+  animation: gr-fade 0.12s ease;
+}
+.gr-inbox-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; letter-spacing: .06em; margin-bottom: 10px; }
+.gr-inbox-x { background: none; border: none; cursor: pointer; color: var(--ash); display: flex; padding: 4px; }
+.gr-inbox-input {
+  width: 100%; border: 1px solid var(--ink); background: var(--paper); color: var(--ink);
+  padding: 10px 12px; font: inherit; font-size: 15px;
+}
+.gr-inbox-input:focus { outline: none; border-color: var(--indigo); box-shadow: inset 0 0 0 1px var(--indigo); }
+.gr-inbox-hint { font-size: 12px; color: var(--ash); margin: 6px 0 10px; }
+.gr-inbox-list { list-style: none; padding: 0; margin: 0; }
+.gr-inbox-list li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--stone); }
+.gr-inbox-text { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.gr-inbox-next { display: block; font-size: 12px; color: var(--ash); margin-top: 2px; }
+.gr-inbox-done {
+  flex: 0 0 auto; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--ink); color: var(--ink); cursor: pointer;
+}
+.gr-inbox-done:hover { background: var(--ink); color: var(--paper); }
+.gr-inbox-empty { font-size: 13px; color: var(--ash); margin: 4px 0 0; }
+@media (pointer: coarse) {
+  .gr-inbox-done { width: 44px; height: 44px; }
+  .gr-inbox-input { font-size: 16px; }
+}
+
+/* ════════ RESUME BAR ════════
+   Under the toolbar: where you were, and what you meant to do next. */
+.gr-resume {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--ink);
+  background: var(--paper);
+  font-size: 14px; line-height: 1.45;
+}
+.gr-resume-k { flex: 0 0 auto; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--paper); background: var(--indigo); padding: 2px 8px; }
+.gr-resume-t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.gr-resume-x { flex: 0 0 auto; background: none; border: none; cursor: pointer; color: var(--ash); display: flex; padding: 6px; }
+.gr-resume.is-ready { background: var(--indigo-l); }
+.gr-resume-go { flex: 0 0 auto; }
+@media (pointer: coarse) { .gr-resume-x { min-width: 44px; min-height: 44px; justify-content: center; } }
+
+/* ════════ BREAK SCREEN · what you set aside ════════ */
+.gr-lock-thoughts { margin: 4px auto 22px; max-width: 360px; text-align: left; border-top: 1px solid var(--ink); padding-top: 12px; }
+.gr-lock-thoughts-head { font-size: 12px; font-weight: 700; letter-spacing: .06em; margin-bottom: 6px; }
+.gr-lock-thoughts ul { margin: 0; padding-left: 1.1em; font-size: 14px; line-height: 1.6; color: var(--graphite); }
+.gr-lock-thoughts-more { font-size: 12px; color: var(--ash); margin-top: 4px; }
+
+/* ════════ NOTES · page link ════════ */
+.gr-note-page {
+  background: none; border: 1px solid var(--ink); color: var(--ink); cursor: pointer;
+  font: 700 11px/1 var(--zh-sans); padding: 4px 6px; font-variant-numeric: tabular-nums;
+}
+.gr-note-page:hover { background: var(--ink); color: var(--paper); }
+@media (pointer: coarse) { .gr-note-page { min-height: 32px; padding: 6px 10px; } }
+
+/* ════════ LIBRARY · progress ════════ */
+.gr-file-name { display: flex; flex-direction: column; gap: 5px; white-space: normal; overflow: hidden; }
+.gr-file-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gr-file-progress { display: flex; align-items: center; gap: 8px; }
+.gr-file-bar { flex: 1; height: 3px; background: var(--mist); position: relative; }
+.gr-file-bar > span { position: absolute; inset: 0 auto 0 0; background: var(--indigo); }
+.gr-file-pages { font-size: 11px; color: var(--ash); font-variant-numeric: tabular-nums; }
